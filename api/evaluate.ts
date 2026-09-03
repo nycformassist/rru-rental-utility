@@ -28,6 +28,10 @@ interface EvaluateResult {
   advancePhase: boolean;
   inconsistencyDetected: boolean;
   followUpTriggered: boolean;
+  /** Short acknowledgment of already-given info relevant to the NEXT
+   *  phase's question, so the app can weave it into that question
+   *  instead of asking cold — fixes the "I already told you that" loop. */
+  priorContextNote: string | null;
 }
 
 function toBool(value: unknown): boolean {
@@ -125,6 +129,10 @@ Evaluate against the Phase ${phaseNum} rule, run the consistency check against P
       advancePhase,
       inconsistencyDetected,
       followUpTriggered,
+      priorContextNote:
+        typeof parsed.priorContextNote === "string" && parsed.priorContextNote.trim().length > 0
+          ? parsed.priorContextNote.trim()
+          : null,
     };
 
     res.status(200).json(result);

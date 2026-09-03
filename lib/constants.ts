@@ -54,6 +54,7 @@ export const EVALUATE_RESPONSE_SCHEMA = {
     advancePhase: { type: "BOOLEAN" },
     inconsistencyDetected: { type: "BOOLEAN" },
     followUpTriggered: { type: "BOOLEAN" },
+    priorContextNote: { type: "STRING", nullable: true },
   },
   required: [
     "isValid",
@@ -62,6 +63,7 @@ export const EVALUATE_RESPONSE_SCHEMA = {
     "advancePhase",
     "inconsistencyDetected",
     "followUpTriggered",
+    "priorContextNote",
   ],
 } as const;
 
@@ -117,6 +119,29 @@ act, phrase, or score as though you were making that decision yourself.
    later by a human agent is always the safer failure mode than an
    intake question that risks a fair-housing complaint.
 `;
+
+// ─────────────────────────────────────────────────────────────────────────
+// Short topic labels — what each phase is actually asking about. Used to
+// tell the model, while it's evaluating phase N, what phase N+1 is about
+// to ask — so it can notice if the client already covered that ground.
+// ─────────────────────────────────────────────────────────────────────────
+
+export const PHASE_TOPIC_LABELS: Record<number, string> = {
+  1: "the client's name",
+  2: "phone number and/or email",
+  3: "whether they want a specific listing or a general search",
+  4: "unit size (studio/1BR/2BR/3BR/4+BR/flexible)",
+  5: "preferred neighborhoods, areas, or zip codes",
+  6: "maximum monthly rent budget",
+  7: "move-in timeline",
+  8: "number of occupants",
+  9: "how they expect to pay rent (income source / housing assistance)",
+  10: "which documents they can currently provide",
+  11: "prior rental history and landlord references",
+  12: "pets and property requirements (parking, laundry, elevator, etc.)",
+  13: "move-in readiness and search stage",
+  14: "anything else they want the agent to know",
+};
 
 // ─────────────────────────────────────────────────────────────────────────
 // Phase rules — the 14-step Rental Inquiry
@@ -412,6 +437,37 @@ export function buildFullRentalReport(
 
 export function buildEvaluateSystemInstruction(phaseNum: number): string {
   const phaseRule = PHASE_RULES[phaseNum];
+  const nextTopic = PHASE_TOPIC_LABELS[phaseNum + 1];
+  const crossPhaseSection = nextTopic
+    ? `
+─────────────────────────────────────────
+CROSS-PHASE AWARENESS (perform on every turn where you're about to advance)
+─────────────────────────────────────────
+If you're advancing (isValid true, no hold-back), the NEXT question the
+app will ask is about: ${nextTopic}.
+
+Check the client's CURRENT answer and everything in Previously Collected
+for information that already substantially covers that upcoming topic —
+this happens often, since clients frequently volunteer more than what
+the current question asked (e.g. mentioning a cross-street or subway
+line while answering a totally different question). This is exactly the
+kind of thing a real person conducting this interview would notice and
+NOT ask about again from scratch.
+
+If you find such overlap: populate "priorContextNote" with a short (≤20
+word), second-person acknowledgment of what they already said — e.g.
+"You mentioned wanting to be near the 233rd St/White Plains Rd subway
+earlier." This will be woven into the next question so it reads as a
+follow-up/confirmation instead of a cold re-ask.
+
+If there's no meaningful overlap, set "priorContextNote" to null. Don't
+force a match — a generic or unrelated prior answer doesn't count.`
+    : `
+─────────────────────────────────────────
+CROSS-PHASE AWARENESS
+─────────────────────────────────────────
+This is the final phase — there is no next question. Set
+"priorContextNote" to null.`;
 
   return `You are the RRU Rental Inquiry Assistant. You are warm, patient, and professional — an information-gathering assistant, never a gatekeeper and never a decision-maker. Your job is to collect rental-inquiry information conversationally so a human agent can follow up efficiently.
 ${FAIR_HOUSING_HARD_RULES}
@@ -441,6 +497,7 @@ assistance/subsidy. If the current answer contains one, set
 follow-up question in agentResponse; set advancePhase to false unless the
 client's current answer already contains the follow-up detail. Otherwise
 set "followUpTriggered" to false.
+${crossPhaseSection}
 
 ─────────────────────────────────────────
 PHASE RULE
@@ -486,7 +543,8 @@ RESPONSE FORMAT — return ONLY a valid JSON object, no markdown, no preamble
   "agentResponse": string,
   "advancePhase": boolean,
   "inconsistencyDetected": boolean,
-  "followUpTriggered": boolean
+  "followUpTriggered": boolean,
+  "priorContextNote": string | null
 }`;
 }
 

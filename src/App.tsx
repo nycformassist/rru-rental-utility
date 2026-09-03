@@ -291,9 +291,21 @@ export default function App() {
           const agentAlreadyAskedSomething = /\?\s*$/.test(String(data.agentResponse || "").trim());
           if (!agentAlreadyAskedSomething) {
             const nextQuestion = INTAKE_QUESTIONS[nextPhase - 1];
-            setLastAssistantMessage(nextQuestion.question);
+            // If the model flagged that the client already touched on the
+            // next topic (e.g. mentioned a cross-street/subway line while
+            // answering a different question), lead with that instead of
+            // asking cold — this is what actually fixes the "I already
+            // told you that" loop, not just a cosmetic acknowledgment.
+            const priorContextNote =
+              typeof data.priorContextNote === "string" && data.priorContextNote.trim().length > 0
+                ? data.priorContextNote.trim()
+                : null;
+            const nextMessageText = priorContextNote
+              ? `${priorContextNote} Just to make sure I have the complete picture — ${nextQuestion.question}`
+              : nextQuestion.question;
+            setLastAssistantMessage(nextMessageText);
             setTimeout(() => {
-              addMessage("model", nextQuestion.question);
+              addMessage("model", nextMessageText);
             }, 450);
           } else {
             setLastAssistantMessage(String(data.agentResponse));
