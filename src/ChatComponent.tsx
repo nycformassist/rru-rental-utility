@@ -89,7 +89,7 @@ export function ChatComponent({
   const reviewFields = allFields || (intakeQuestions || []).map((q) => ({
     key: q.field,
     label: q.field.replace(/([A-Z])/g, " $1").trim(),
-    critical: ["fullName", "contactInfo", "buyingGoal"].includes(q.field),
+    critical: ["fullName", "contactInfo"].includes(q.field),
   }));
 
   const emptyCount = answers
@@ -107,7 +107,7 @@ export function ChatComponent({
           </div>
           <div className="h-4 w-px bg-slate-200 hidden sm:block" />
           <span className="text-sm font-medium text-slate-600 underline underline-offset-4 decoration-indigo-500 hidden sm:inline">
-            Automated Property & Buyer Qualification
+            Automated Rental Inquiry Qualification
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -183,7 +183,7 @@ export function ChatComponent({
               </div>
               <span className="text-[11px] text-slate-400 font-medium italic">
                 {submitStatus === "submitting"
-                  ? "Finalizing secure buyer match report..."
+                  ? "Finalizing your rental inquiry brief..."
                   : "RRU™ is analyzing..."}
               </span>
             </div>
@@ -196,7 +196,7 @@ export function ChatComponent({
             <div className="flex items-center gap-2 mb-2 pb-3 border-b border-slate-100">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
-                Review Your Buyer Profile
+                Review Your Rental Inquiry
               </h3>
             </div>
             
@@ -224,7 +224,7 @@ export function ChatComponent({
 
             <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
               <p className="text-[10px] text-slate-400 italic">
-                By submitting, you confirm the above information is accurate. This will be securely reviewed by our real estate team.
+                By submitting, you confirm the above information is accurate. This will be reviewed by our rental team — RRU does not approve, deny, or make eligibility decisions.
               </p>
               <button
                 type="button"
@@ -232,7 +232,7 @@ export function ChatComponent({
                 disabled={isLoading || isFinished || submitStatus === "submitting" || emptyCount > 0}
                 className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg uppercase tracking-widest disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
               >
-                {isFinished ? "✅ Submitted" : "Submit Profile →"}
+                {isFinished ? "✅ Submitted" : "Submit Inquiry →"}
               </button>
             </div>
           </div>
@@ -290,7 +290,7 @@ export function ChatComponent({
               onKeyDown={handleKeyDown}
               disabled={isInputDisabled}
               placeholder={
-                isFinished ? "Interview complete." : "Type your response here..."
+                isFinished ? "Inquiry complete." : "Type your response here..."
               }
               className="flex-1 bg-transparent px-4 py-3 text-sm outline-none disabled:cursor-not-allowed"
               autoComplete="off"
@@ -308,7 +308,7 @@ export function ChatComponent({
         <div className="mt-2.5 flex justify-between items-center">
           <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium uppercase tracking-wider">
             <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-            Real Estate Readiness Protocol
+            Rental Inquiry Protocol
           </div>
           <span className="text-[10px] text-slate-300">RRU™ Engine v1.0</span>
         </div>

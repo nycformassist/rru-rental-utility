@@ -1,24 +1,17 @@
 /**
  * api/evaluate.ts — POST /api/evaluate
  *
- * Per-phase gatekeeping for the RRU Buyer Interview (Gemini-driven).
- * Kept intentionally thin: all prompt text, phase rules, and mode logic
- * live in lib/constants.ts; all model-calling/retry logic lives in
- * lib/gemini-client.ts. This file validates the request shape, calls
- * generateJSON(), and — critically — recomputes "advancePhase" itself
- * rather than trusting the model's own value for it. See the "STATE
- * DESYNC FIX" block below for why.
+ * Per-phase gatekeeping for the RRU Rental Inquiry (Gemini-driven). Thin
+ * handler: prompt text and phase rules live in lib/constants.ts,
+ * model-calling/retry logic lives in lib/gemini-client.ts. This file
+ * validates the request shape, calls generateJSON(), and recomputes
+ * "advancePhase" itself rather than trusting the model's own value —
+ * same fix applied to the Buyer RRU after a real production bug where a
+ * model-trusted advancePhase silently desynced from the conversation.
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import {
-  buildEvaluateSystemInstruction,
-  detectBuyerMode,
-  isSupportedLanguageCode,
-  DEFAULT_LANGUAGE_CODE,
-  EVALUATE_RESPONSE_SCHEMA,
-  type BuyerMode,
-} from "../lib/constants.js";
+import { buildEvaluateSystemInstruction, EVALUATE_RESPONSE_SCHEMA } from "../lib/constants.js";
 import { generateJSON, UpstreamUnavailableError } from "../lib/gemini-client.js";
 
 interface EvaluateRequestBody {
@@ -26,13 +19,6 @@ interface EvaluateRequestBody {
   question: string;
   answer: string;
   allAnswers?: Record<string, unknown>;
-  /**
-   * BCP-47 language code. Send this once the client has picked a language
-   * (or once a prior /api/evaluate response returned "detectedLanguage")
-   * so every subsequent turn stays pinned to that language instead of
-   * re-detecting from scratch each time.
-   */
-  language?: string;
 }
 
 interface EvaluateResult {
@@ -42,24 +28,15 @@ interface EvaluateResult {
   advancePhase: boolean;
   inconsistencyDetected: boolean;
   followUpTriggered: boolean;
-  /** BCP-47 code — persist this and send it back as `language` on the next call. */
-  detectedLanguage: string;
-  languageSwitchDetected: boolean;
 }
 
-/**
- * Coerces "boolean-ish" values (real booleans, and the string forms a
- * model or a lossy JSON round-trip might produce) to a real boolean.
- * `EVALUATE_RESPONSE_SCHEMA` should make the string cases impossible in
- * practice, but this stays as a second line of defense — cheap insurance
- * against any client (or a future prompt change) that stops using the
- * schema.
- */
 function toBool(value: unknown): boolean {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") return value.trim().toLowerCase() === "true";
   return Boolean(value);
 }
+
+const TOTAL_PHASES = 14;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
@@ -73,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const { phase, question, answer, allAnswers, language } = (req.body || {}) as EvaluateRequestBody;
+  const { phase, question, answer, allAnswers } = (req.body || {}) as EvaluateRequestBody;
 
   if (!phase || !question || answer === undefined || answer === null) {
     res.status(400).json({ error: "Missing required fields: phase, question, answer" });
@@ -81,25 +58,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const phaseNum = Number(phase);
-  if (isNaN(phaseNum) || phaseNum < 1 || phaseNum > 11) {
+  if (isNaN(phaseNum) || phaseNum < 1 || phaseNum > TOTAL_PHASES) {
     res.status(400).json({ error: "Invalid phase number" });
     return;
   }
 
-  const goalAnswer = String((allAnswers as Record<string, unknown> | undefined)?.buyingGoal || "");
-  const mode: BuyerMode = detectBuyerMode(goalAnswer);
-
-  // Prefer an explicit `language` on this request; fall back to a language
-  // already persisted on allAnswers from a prior turn; otherwise leave
-  // undefined so the model auto-detects from the client's raw answer.
-  const persistedLanguage = String((allAnswers as Record<string, unknown> | undefined)?.preferredLanguage || "");
-  const pinnedLanguage = isSupportedLanguageCode(language)
-    ? language
-    : isSupportedLanguageCode(persistedLanguage)
-      ? persistedLanguage
-      : undefined;
-
-  const systemInstruction = buildEvaluateSystemInstruction(phaseNum, mode, pinnedLanguage);
+  const systemInstruction = buildEvaluateSystemInstruction(phaseNum);
 
   const currentDate = new Date().toLocaleDateString("en-US", {
     year: "numeric",
@@ -136,24 +100,10 @@ Evaluate against the Phase ${phaseNum} rule, run the consistency check against P
     const followUpTriggered = toBool(parsed.followUpTriggered);
     const modelAdvancePhase = toBool(parsed.advancePhase);
 
-    // ── STATE DESYNC FIX ────────────────────────────────────────────────
-    // advancePhase is now COMPUTED here, not trusted directly from the
-    // model's own field. The two legitimate reasons to hold the phase are
-    // exactly `inconsistencyDetected` and `followUpTriggered` (both are
-    // themselves separately validated flags, not free-form claims) — see
-    // the ADVANCE-PHASE RULE in lib/constants.ts. If isValid is true,
-    // there's real extractedData, and neither hold-back flag is set, the
-    // phase advances regardless of what the model wrote for advancePhase
-    // itself. This is what actually fixes the desync: previously, if the
-    // model's conversational agentResponse moved on to the next question
-    // but it forgot (or mis-set) advancePhase, the UI would silently
-    // stall on the old phase while the model had already moved on. Now
-    // the flag it might get wrong is no longer load-bearing.
-    //
-    // modelAdvancePhase is still consulted as an OR: if the model
-    // explicitly says advance (e.g. for a phase rule nuance not captured
-    // by isValid/extractedData alone) that's honored too — this can only
-    // ever advance MORE readily than before, never get stuck worse.
+    // Self-correcting advancePhase: computed from isValid + extractedData +
+    // the two legitimate hold-back flags, not trusted directly from the
+    // model's own field. See api/evaluate.ts in the Buyer RRU for the
+    // original incident this pattern fixes.
     const advancePhase =
       modelAdvancePhase ||
       (isValid && hasExtractedData && !inconsistencyDetected && !followUpTriggered);
@@ -175,10 +125,6 @@ Evaluate against the Phase ${phaseNum} rule, run the consistency check against P
       advancePhase,
       inconsistencyDetected,
       followUpTriggered,
-      detectedLanguage: isSupportedLanguageCode(parsed.detectedLanguage as string)
-        ? (parsed.detectedLanguage as string)
-        : (pinnedLanguage || DEFAULT_LANGUAGE_CODE),
-      languageSwitchDetected: toBool(parsed.languageSwitchDetected),
     };
 
     res.status(200).json(result);

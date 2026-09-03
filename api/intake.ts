@@ -1,14 +1,8 @@
 /**
  * api/intake.ts — POST /api/intake
  *
- * Emails the finished Buyer Readiness report to the brokerage. Uses the
- * same Vercel Node handler convention (VercelRequest/VercelResponse) as
- * api/evaluate.ts and api/generate-report.ts — a prior version of this
- * file used the Web Fetch API handler style (`export async function
- * POST(req: Request)`), which is a Next.js App Router convention this
- * project doesn't otherwise use. Mixing handler conventions across files
- * in the same api/ directory is a real deployment risk on Vercel, not
- * just a style nit.
+ * Emails the finished Rental Inquiry Brief to the agency. Same Vercel
+ * Node handler convention as api/evaluate.ts and api/generate-report.ts.
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -25,7 +19,7 @@ function getResendClient(): Resend {
   return resendClient;
 }
 
-// Set this to your actual brokerage inbox before going live.
+// Set this to your actual agency inbox before going live.
 const NOTIFICATION_RECIPIENT = "healthcarebyvalentine@gmail.com";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -40,35 +34,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const { structuredData, buyerSummary } = (req.body || {}) as {
+  const { structuredData, fullReport } = (req.body || {}) as {
     structuredData?: Record<string, unknown>;
-    buyerSummary?: string;
+    fullReport?: string;
   };
 
-  if (!structuredData || !buyerSummary) {
-    res.status(400).json({ success: false, error: "Missing required payload fields (structuredData, buyerSummary)." });
+  if (!structuredData || !fullReport) {
+    res.status(400).json({ success: false, error: "Missing required payload fields (structuredData, fullReport)." });
     return;
   }
 
-  // Matches the real /api/generate-report output: "agentPriority"
-  // (A+/A/B/C/D) and "readinessBand", not the legacy "priority" field.
-  const agentPriority = String(structuredData.agentPriority || "D");
-  const readinessBand = String(structuredData.readinessBand || "Pending Review");
-  const clientName = String(structuredData.fullName || "New Lead");
+  const statusEmoji = String(structuredData.statusEmoji || "⚪");
+  const statusLabel = String(structuredData.statusLabel || "Inquiry Incomplete");
+  const applicantName = String(structuredData.fullName || "New Rental Inquiry");
 
   try {
     const client = getResendClient();
     const { error } = await client.emails.send({
-      from: "RRU Matchmaker <onboarding@resend.dev>",
+      from: "RRU Rental Inquiry <onboarding@resend.dev>",
       to: [NOTIFICATION_RECIPIENT],
-      subject: `[RRU™] ${agentPriority} Priority Buyer (${readinessBand}): ${clientName}`,
-      text: buyerSummary,
+      subject: `[RRU™ Rental] ${statusEmoji} ${statusLabel}: ${applicantName}`,
+      text: fullReport,
       html: `
         <div style="font-family: monospace; white-space: pre-wrap; font-size: 14px; color: #333; background-color: #f8fafc; padding: 20px; border-radius: 8px;">
-          <p><strong>Agent Priority:</strong> ${agentPriority} — ${readinessBand}</p>
+          <p><strong>Status:</strong> ${statusEmoji} ${statusLabel}</p>
           <p><strong>Recommended Next Step:</strong> ${String(structuredData.recommendedNextStep || "Review manually")}</p>
           <hr style="border-color:#e2e8f0; margin: 12px 0;" />
-          ${buyerSummary}
+          ${fullReport}
         </div>
       `,
     });
@@ -79,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    res.status(200).json({ success: true, message: "Profile submitted and emailed successfully." });
+    res.status(200).json({ success: true, message: "Inquiry submitted and emailed successfully." });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[api/intake] Internal error:", message);
