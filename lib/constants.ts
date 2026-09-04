@@ -38,8 +38,8 @@
 // Model config
 // ─────────────────────────────────────────────────────────────────────────
 
-export const MODEL_NAME = "gemini-3.5-flash";
-export const FALLBACK_MODEL_NAME = "gemini-2.5-flash";
+export const MODEL_NAME = "gemini-3.8-flash";
+export const FALLBACK_MODEL_NAME = "gemini-3.7-flash";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Strict response schema for /api/evaluate
@@ -82,42 +82,42 @@ applicable laws and consistent property-specific criteria. You must never
 act, phrase, or score as though you were making that decision yourself.
 
 1. NEVER output or imply "Approved," "Denied," "Ineligible," "Rejected,"
-   "Qualified tenant," "Good tenant," "Bad tenant," or any equivalent
-   eligibility verdict — in agentResponse, in scores, in flags, or in the
-   report. Use only the defined operational statuses (Ready for Agent
-   Review / Additional Information Needed / Inquiry Incomplete /
-   Property-Specific Review).
+    "Qualified tenant," "Good tenant," "Bad tenant," or any equivalent
+    eligibility verdict — in agentResponse, in scores, in flags, or in the
+    report. Use only the defined operational statuses (Ready for Agent
+    Review / Additional Information Needed / Inquiry Incomplete /
+    Property-Specific Review).
 
 2. LAWFUL SOURCE OF INCOME — NEVER a negative signal. If a client
-   mentions a housing subsidy or lawful assistance program (Section 8,
-   CityFHEPS, FHEPS, HASA, veterans assistance, or any other lawful
-   income source), that is complete, valid financial information — score
-   it exactly as you would "employment income." Route it to a neutral
-   🔵 PROPERTY-SPECIFIC REVIEW note ("Housing assistance information
-   provided — requires standard property-specific review"), never to a
-   risk flag, never to a lower score, and never phrase it as uncertainty
-   ("may not qualify," "income may be insufficient," etc.).
+    mentions a housing subsidy or lawful assistance program (Section 8,
+    CityFHEPS, FHEPS, HASA, veterans assistance, or any other lawful
+    income source), that is complete, valid financial information — score
+    it exactly as you would "employment income." Route it to a neutral
+    🔵 PROPERTY-SPECIFIC REVIEW note ("Housing assistance information
+    provided — requires standard property-specific review"), never to a
+    risk flag, never to a lower score, and never phrase it as uncertainty
+    ("may not qualify," "income may be insufficient," etc.).
 
 3. NEVER ask about, probe into, or record: marital or familial status,
-   pregnancy, nationality or immigration status, religion, or disability
-   specifics beyond a voluntarily-offered accessibility request. If a
-   client volunteers this information unprompted, do not follow up on it,
-   do not let it influence any score, and do not repeat it back
-   editorially in agentResponse or the report — a plain, neutral
-   acknowledgment is enough before moving on.
+    pregnancy, nationality or immigration status, religion, or disability
+    specifics beyond a voluntarily-offered accessibility request. If a
+    client volunteers this information unprompted, do not follow up on it,
+    do not let it influence any score, and do not repeat it back
+    editorially in agentResponse or the report — a plain, neutral
+    acknowledgment is enough before moving on.
 
 4. Household size is collected ONLY as an occupant count. Do not ask why,
-   who, or how the household is composed.
+    who, or how the household is composed.
 
 5. Credit is collected ONLY as a self-described general category
-   (Excellent/Good/Fair/Needs improvement/No established history/Prefer
-   to discuss) if asked at all — never a specific score, never a request
-   for a credit report during intake.
+    (Excellent/Good/Fair/Needs improvement/No established history/Prefer
+    to discuss) if asked at all — never a specific score, never a request
+    for a credit report during intake.
 
 6. When genuinely uncertain whether a topic crosses into protected-class
-   territory, do not ask it. A missing data point that gets confirmed
-   later by a human agent is always the safer failure mode than an
-   intake question that risks a fair-housing complaint.
+    territory, do not ask it. A missing data point that gets confirmed
+    later by a human agent is always the safer failure mode than an
+    intake question that risks a fair-housing complaint.
 `;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -328,7 +328,7 @@ are written.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 INQUIRY STATUS BANDS (based on final score — these are OPERATIONAL
 statuses about inquiry completeness, never eligibility verdicts):
-  80–100 → 🟢 Ready for Agent Review     — Inquiry is substantially complete.
+  80–100 → 🟢 Ready for Agent Review      — Inquiry is substantially complete.
   50–79  → 🟡 Additional Info Needed     — Promising, but incomplete.
   0–49   → ⚪ Inquiry Incomplete         — Needs more intake before follow-up.
 
@@ -389,30 +389,30 @@ export function buildFullRentalReport(
     "",
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "APPLICANT",
-    `  Name:              ${str(sd.fullName ?? answers.fullName)}`,
-    `  Contact:           ${str(sd.contactInfo ?? answers.contactInfo)}`,
+    `   Name:              ${str(sd.fullName ?? answers.fullName)}`,
+    `   Contact:           ${str(sd.contactInfo ?? answers.contactInfo)}`,
     "",
     "HOUSING SEARCH",
-    `  Property Interest: ${str(sd.propertyInterest ?? answers.propertyInterest)}`,
-    `  Home Type:         ${str(sd.homeType ?? answers.homeType)}`,
-    `  Preferred Areas:   ${str(sd.preferredAreas ?? answers.preferredAreas)}`,
-    `  Budget Range:      ${str(sd.budgetRange ?? answers.budgetRange)}`,
-    `  Move-In Timeline:  ${str(sd.moveInTimeline ?? answers.moveInTimeline)}`,
+    `   Property Interest: ${str(sd.propertyInterest ?? answers.propertyInterest)}`,
+    `   Home Type:         ${str(sd.homeType ?? answers.homeType)}`,
+    `   Preferred Areas:   ${str(sd.preferredAreas ?? answers.preferredAreas)}`,
+    `   Budget Range:      ${str(sd.budgetRange ?? answers.budgetRange)}`,
+    `   Move-In Timeline:  ${str(sd.moveInTimeline ?? answers.moveInTimeline)}`,
     "",
     "HOUSEHOLD",
-    `  Occupants:         ${str(sd.householdSize ?? answers.householdSize)}`,
+    `   Occupants:         ${str(sd.householdSize ?? answers.householdSize)}`,
     "",
     "FINANCIAL / PAYMENT CONTEXT",
-    `  Payment Sources:   ${str(sd.paymentSources ?? answers.paymentSources)}`,
+    `   Payment Sources:   ${str(sd.paymentSources ?? answers.paymentSources)}`,
     "",
     "DOCUMENT & RENTAL READINESS",
-    `  Document Readiness: ${str(sd.documentReadiness ?? answers.documentReadiness)}`,
-    `  Rental History:     ${str(sd.rentalHistory ?? answers.rentalHistory)}`,
-    `  Requirements/Pets:  ${str(sd.requirementsAndPets ?? answers.requirementsAndPets)}`,
-    `  Move-In Readiness:  ${str(sd.moveInReadinessStage ?? answers.moveInReadinessStage)}`,
+    `   Document Readiness: ${str(sd.documentReadiness ?? answers.documentReadiness)}`,
+    `   Rental History:     ${str(sd.rentalHistory ?? answers.rentalHistory)}`,
+    `   Requirements/Pets:  ${str(sd.requirementsAndPets ?? answers.requirementsAndPets)}`,
+    `   Move-In Readiness:  ${str(sd.moveInReadinessStage ?? answers.moveInReadinessStage)}`,
     "",
     "ADDITIONAL NOTES",
-    `  ${str(sd.additionalNotes ?? answers.additionalNotes, "None provided.")}`,
+    `   ${str(sd.additionalNotes ?? answers.additionalNotes, "None provided.")}`,
     "",
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "🔵 PROPERTY-SPECIFIC REVIEW ITEMS (routing only — not a penalty):",
@@ -421,7 +421,7 @@ export function buildFullRentalReport(
       : ["  - None — no items require special routing."]),
     "",
     "RECOMMENDED NEXT STEP:",
-    `  ${str(sd.recommendedNextStep, "Follow up to complete missing intake details.")}`,
+    `   ${str(sd.recommendedNextStep, "Follow up to complete missing intake details.")}`,
     "",
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "RRU assists with information collection and inquiry organization only.",
@@ -476,7 +476,7 @@ to count as overlap:
     is NOT itself something to re-surface when a later, broader question
     asks what OTHER documents they have — the client isn't expected to
     re-list everything they've already confirmed, and prompting them as
-    if they need to is what causes an unnecessary "wait, do you still
+    если they need to is what causes an unnecessary "wait, do you still
     have that?" loop. Only surface it if their new answer actually
     conflicts with it (see the OMISSION IS NOT CONTRADICTION rule below).
   - The interview's closing "anything else?" question should almost
