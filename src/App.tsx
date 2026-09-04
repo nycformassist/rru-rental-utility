@@ -315,7 +315,7 @@ export default function App() {
           setTimeout(() => {
             addMessage(
               "system",
-              "All done! Please review your answers below — you can edit anything before submitting. When you're ready, click **Submit Inquiry** to send your information to our team."
+              "All done! Please review your answers below. When you're ready, click **Submit Inquiry** to send your information to our team."
             );
           }, 450);
         }

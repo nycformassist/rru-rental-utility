@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Message, SubmitStatus } from "./App";
 import ReactMarkdown from "react-markdown";
-import { CheckCircle2, AlertCircle, AlertTriangle } from "lucide-react";
+import { CheckCircle2, AlertCircle, AlertTriangle, Pencil } from "lucide-react";
 
 interface IntakeQuestion {
   field: string;
@@ -53,6 +53,11 @@ export function ChatComponent({
   allFields,
 }: ChatComponentProps) {
   const [inputValue, setInputValue] = useState("");
+  // Which review field (by key) is currently in edit mode, if any — only
+  // one at a time. Click a field's value to edit it, Enter or blur to
+  // save, Escape to cancel.
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
   const endOfMessagesRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -204,6 +209,20 @@ export function ChatComponent({
             <div className="mt-4 space-y-3">
               {reviewFields.map((field) => {
                 const answer = answers[field.key] || "";
+                const isEditing = editingField === field.key;
+                const canEdit = Boolean(onEditAnswer) && !isFinished && submitStatus !== "submitting";
+
+                const startEdit = () => {
+                  if (!canEdit) return;
+                  setEditDraft(answer);
+                  setEditingField(field.key);
+                };
+                const saveEdit = () => {
+                  onEditAnswer?.(field.key, editDraft.trim());
+                  setEditingField(null);
+                };
+                const cancelEdit = () => setEditingField(null);
+
                 return (
                   <div key={field.key} className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-4 py-2 border-b border-slate-50 last:border-0">
                     <div className="sm:w-48 text-xs font-semibold text-slate-500 uppercase tracking-wider shrink-0 mt-0.5">
@@ -211,10 +230,41 @@ export function ChatComponent({
                       {field.critical && <span className="text-red-400 ml-1" title="Required">*</span>}
                     </div>
                     <div className="flex-1">
-                      {answer ? (
-                        <div className="text-sm text-slate-800 whitespace-pre-wrap">{answer}</div>
+                      {isEditing ? (
+                        <textarea
+                          autoFocus
+                          value={editDraft}
+                          onChange={(e) => setEditDraft(e.target.value)}
+                          onBlur={saveEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              saveEdit();
+                            } else if (e.key === "Escape") {
+                              cancelEdit();
+                            }
+                          }}
+                          rows={2}
+                          className="w-full text-sm text-slate-800 border border-indigo-300 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-200 resize-y"
+                        />
                       ) : (
-                        <div className="text-sm text-slate-400 italic">Not provided</div>
+                        <button
+                          type="button"
+                          onClick={startEdit}
+                          disabled={!canEdit}
+                          className={`w-full text-left group flex items-start gap-2 rounded-md px-1 -mx-1 py-0.5 ${
+                            canEdit ? "hover:bg-slate-50 cursor-text" : "cursor-default"
+                          }`}
+                        >
+                          {answer ? (
+                            <span className="text-sm text-slate-800 whitespace-pre-wrap">{answer}</span>
+                          ) : (
+                            <span className="text-sm text-slate-400 italic">Not provided</span>
+                          )}
+                          {canEdit && (
+                            <Pencil className="w-3 h-3 text-slate-300 group-hover:text-slate-500 shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-opacity" />
+                          )}
+                        </button>
                       )}
                     </div>
                   </div>
