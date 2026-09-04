@@ -112,26 +112,30 @@ async function callModelWithRetry(
  * where booleans are expected, no missing required fields.
  */
 export async function generateJSON(systemInstruction: string, prompt: string, responseSchema?: object): Promise<string> {
+  // Ensure we use the current stable model constants (e.g. gemini-3.8-flash)
+  const primaryModel = MODEL_NAME;
+  const fallbackModel = FALLBACK_MODEL_NAME;
+
   try {
-    const response = await callModelWithRetry(MODEL_NAME, systemInstruction, prompt, responseSchema);
+    const response = await callModelWithRetry(primaryModel, systemInstruction, prompt, responseSchema);
     return (response.text || "{}").trim();
   } catch (primaryErr) {
     const status = extractStatusCode(primaryErr);
     if (status === null || !RETRYABLE_STATUS_CODES.includes(status)) {
-      // Not a capacity issue (bad request, auth failure, etc.) — don't
+      // Not a capacity issue (bad request, auth failure, 404, etc.) — don't
       // mask it by trying a second model, just surface it.
       throw primaryErr;
     }
 
-    console.warn(`[gemini-client] ${MODEL_NAME} exhausted retries — falling back to ${FALLBACK_MODEL_NAME}.`);
+    console.warn(`[gemini-client] ${primaryModel} exhausted retries — falling back to ${fallbackModel}.`);
     try {
-      const response = await callModelWithRetry(FALLBACK_MODEL_NAME, systemInstruction, prompt, responseSchema);
+      const response = await callModelWithRetry(fallbackModel, systemInstruction, prompt, responseSchema);
       return (response.text || "{}").trim();
     } catch (fallbackErr) {
       const fbStatus = extractStatusCode(fallbackErr);
       if (fbStatus !== null && RETRYABLE_STATUS_CODES.includes(fbStatus)) {
         throw new UpstreamUnavailableError(
-          `Both ${MODEL_NAME} and ${FALLBACK_MODEL_NAME} are currently unavailable (Google capacity issue). Please try again shortly.`
+          `Both ${primaryModel} and ${fallbackModel} are currently unavailable (Google capacity issue). Please try again shortly.`
         );
       }
       throw fallbackErr;
