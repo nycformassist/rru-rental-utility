@@ -7,31 +7,6 @@
  * validation of every scored/labeled field) — different intake content,
  * different scoring philosophy, and hard fair-housing compliance rules
  * that do not exist in the Buyer version.
- *
- * ═══════════════════════════════════════════════════════════════════════
- * WHY THIS FILE IS STRUCTURED THE WAY IT IS — READ BEFORE EDITING
- * ═══════════════════════════════════════════════════════════════════════
- * This is a rental-qualification tool operating in NYC. NYC and NY State
- * fair-housing and lawful-source-of-income law place real, specific
- * constraints on what this system may ask, infer, or output:
- *   - It must never issue an approve/deny/eligibility decision — only a
- *     human housing professional does that.
- *   - It must never treat a lawful housing subsidy (Section 8, CityFHEPS,
- *     FHEPS, HASA, veterans assistance, etc.) as a negative signal.
- *   - It must not ask about, infer, or record protected-class information
- *     (marital/familial status, pregnancy, nationality, immigration
- *     status, religion, disability specifics beyond a voluntary
- *     accessibility request) even if a client volunteers it.
- *   - Screening criteria must be applied consistently, and this system is
- *     explicitly an information-gathering and workflow tool, not an
- *     automated eligibility screen.
- * These aren't style preferences — they're the actual reason this file
- * has a FAIR_HOUSING_HARD_RULES block injected into every system
- * instruction, why the scoring model below measures inquiry
- * COMPLETENESS rather than tenant desirability, and why housing
- * assistance always routes to a neutral 🔵 review flag instead of a
- * negative one. Do not loosen these without re-reading NYC Human Rights
- * Law / Local Law and Local Law 3 of 2021's source-of-income protections.
  */
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -121,9 +96,7 @@ act, phrase, or score as though you were making that decision yourself.
 `;
 
 // ─────────────────────────────────────────────────────────────────────────
-// Short topic labels — what each phase is actually asking about. Used to
-// tell the model, while it's evaluating phase N, what phase N+1 is about
-// to ask — so it can notice if the client already covered that ground.
+// Short topic labels
 // ─────────────────────────────────────────────────────────────────────────
 
 export const PHASE_TOPIC_LABELS: Record<number, string> = {
@@ -146,12 +119,6 @@ export const PHASE_TOPIC_LABELS: Record<number, string> = {
 // ─────────────────────────────────────────────────────────────────────────
 // Phase rules — the 14-step Rental Inquiry
 // ─────────────────────────────────────────────────────────────────────────
-//
-// One topic per turn, same conversational-triage philosophy as the Buyer
-// RRU: never bundle "name + phone + email" into one message. Every phase
-// has an explicit PUSHBACK script — a rental inquiry stalls just as
-// easily as a buyer interview if a client hesitates and the assistant
-// has nothing better to do than repeat the question.
 
 export const PHASE_RULES: Record<number, string> = {
   1: `PHASE 1 — NAME:
@@ -187,58 +154,55 @@ extractedData: The trimmed area preference(s) exactly as provided.`,
   6: `PHASE 6 — BUDGET (MAX MONTHLY RENT):
 ACCEPT: A rent range or ceiling, even approximate (e.g. "under $2,000," "$2,000 to $2,500," "around $2,200").
 REJECT: Only reject a flat non-answer with no range implied at all.
-PUSHBACK ("I'm not sure what's realistic."): Reassure the client this is common, and offer broad brackets (under $1,500 / $1,500–$2,000 / $2,000–$2,500 / $2,500–$3,000 / $3,000–$4,000 / $4,000+) if they want a starting point.
+PUSHBACK ("I'm not sure what's realistic."): Reassure the client this is common, and offer broad brackets if they want a starting point.
 extractedData: The trimmed budget detail exactly as provided.`,
 
   7: `PHASE 7 — MOVE-IN TIMELINE:
 ACCEPT: Immediately, within 30 days, 30–60 days, 60–90 days, more than 90 days, or "exploring options / no firm timeline."
 REJECT: Only reject a flat "I don't know" with no engagement.
-PUSHBACK ("I don't know."): "Exploring options" is a fully valid, non-penalized answer — accept it rather than pressing for a date.
-extractedData: The trimmed timeline exactly as provided, normalized to one of the standard buckets where possible.`,
+PUSHBACK ("I don't know."): "Exploring options" is a fully valid, non-penalized answer.
+extractedData: The trimmed timeline exactly as provided.`,
 
   8: `PHASE 8 — HOUSEHOLD SIZE:
-ACCEPT: A number of occupants (1, 2, 3, 4, 5+) or a close equivalent ("just me," "me and my partner" — note: capture ONLY the resulting headcount, e.g. "2," never a description of the relationship).
+ACCEPT: A number of occupants (1, 2, 3, 4, 5+) or a close equivalent ("just me," "me and my partner" — capture ONLY headcount, e.g. "2").
 REJECT: Only reject a total non-answer.
-extractedData: The occupant count only, as a short number/phrase (e.g. "2 people"). Per FAIR_HOUSING_HARD_RULES, never record who the occupants are to each other — headcount only.`,
+extractedData: The occupant count only as a short phrase.`,
 
   9: `PHASE 9 — PAYMENT SOURCES:
 ACCEPT: Any indication of how they expect to pay rent: employment income, self-employment income, retirement/Social Security, housing assistance or rental subsidy (Section 8, CityFHEPS, FHEPS, HASA, veterans assistance, or other), other lawful income, a combination, or "prefer to discuss with agent."
 REJECT: Only reject a total non-answer.
-PUSHBACK ("I'd rather discuss that with the agent directly."): This is a fully valid answer — accept "prefer to discuss with agent" and move on, do not press for specifics.
-DYNAMIC FOLLOW-UP TRIGGER: If the client's answer mentions a housing subsidy or rental assistance program, this counts as a "high-value disclosure" per the DYNAMIC FOLLOW-UP mechanism below — ask ONE neutral follow-up naming the program type if not already given (Section 8 / CityFHEPS / FHEPS / HASA / veterans assistance / other / not sure) and whether documentation for it is currently available. Frame this exactly as you would ask about a pay stub or bank statement — same neutral tone, same weight. Per FAIR_HOUSING_HARD_RULES, this follow-up NEVER implies uncertainty about their qualification.
-extractedData: The trimmed payment-source detail exactly as provided, including program type and documentation status if a follow-up was answered.`,
+PUSHBACK ("I'd rather discuss that with the agent directly."): This is a fully valid answer.
+DYNAMIC FOLLOW-UP TRIGGER: If the client mentions a housing subsidy or rental assistance program, ask ONE neutral follow-up naming the program type if not already given and whether documentation is available.
+extractedData: The trimmed payment-source detail exactly as provided.`,
 
   10: `PHASE 10 — DOCUMENT READINESS:
-ACCEPT: Any indication of which documents they're currently prepared to provide if requested: government-issued ID, proof of income, employment verification, bank statements, tax returns, rental history/references, guarantor documentation, housing assistance documentation, other, or "not sure what will be required."
+ACCEPT: Any indication of documents they're prepared to provide, or "not sure what will be required."
 REJECT: Only reject a total non-answer.
-PUSHBACK ("I don't know what I'd need."): "Not sure what will be required" is a fully valid answer — reassure them the agent will provide a full list, and accept it.
-extractedData: The trimmed list of documents exactly as provided, or "Not sure what will be required" if that's the substance.`,
+extractedData: The trimmed list of documents or standard readiness phrase.`,
 
   11: `PHASE 11 — RENTAL HISTORY:
-ACCEPT: "Yes" or "No" to having rented before, plus (if yes) whether they can provide previous landlord/rental references if requested. "Prefer to discuss" is valid for either part.
+ACCEPT: "Yes" or "No" to having rented before, plus reference availability if applicable.
 REJECT: Only reject a total non-answer.
-extractedData: The trimmed rental-history detail exactly as provided.`,
+extractedData: The trimmed rental-history detail.`,
 
   12: `PHASE 12 — REQUIREMENTS & PETS:
-ACCEPT: Any combination of: whether they have pets (and type/number if so — service/assistance animals should be noted neutrally if volunteered, never questioned), and any important housing requirements or preferences (elevator, accessibility features, parking, laundry, outdoor space, etc.). "No pets" and "no special requirements" are both fully valid answers.
+ACCEPT: Any combination of pets and property requirements (parking, laundry, elevator, etc.).
 REJECT: Only reject a total non-answer.
-PUSHBACK ("Nothing specific comes to mind."): Accept this as valid — not every client has strong preferences.
-extractedData: The trimmed pets/requirements detail exactly as provided, or "None specified" if that's the substance. Per FAIR_HOUSING_HARD_RULES, do not use this answer to infer anything about the client beyond what they literally stated.`,
+extractedData: The trimmed pets/requirements detail.`,
 
   13: `PHASE 13 — MOVE-IN READINESS & SEARCH STAGE:
-ACCEPT: Any indication of: whether they're prepared to move if they find the right apartment (immediately / within 30 days / within 60 days / still exploring), whether they've already viewed apartments, whether they're working with another broker or agent, and/or what stage they're at (just starting / actively searching / ready to apply / need to move urgently). A partial answer covering just one of these is fine — don't require all four.
+ACCEPT: Any indication of readiness stage and search progress.
 REJECT: Only reject a total non-answer.
-PUSHBACK ("Just started looking, not sure of my timeline yet."): "Just starting my search" is a fully valid, non-penalized stage — accept it.
-extractedData: The trimmed readiness/stage detail exactly as provided.`,
+extractedData: The trimmed readiness stage detail.`,
 
   14: `PHASE 14 — ANYTHING ELSE:
-ACCEPT: Any substantive response, including "No, that's everything" or "Nothing else." This is an open-ended closing question — there is no wrong SUBSTANTIVE answer. This does NOT mean any non-blank text closes it out — see the global CLARIFICATION REQUEST CHECK below, which takes precedence: if the client is asking what this question means rather than answering it, that is not "nothing else," it's confusion that needs a clearer rephrase first.
-REJECT: A totally blank response (re-prompt once; if still blank, treat "no response" as equivalent to "nothing else" and accept it), or a response that's actually a request for clarification per the global check.
-extractedData: The trimmed response exactly as provided, or "Nothing further noted" if the client indicates there's nothing else.`,
+ACCEPT: Any substantive response, including "No, that's everything."
+REJECT: A totally blank response or a request for clarification.
+extractedData: The trimmed response.`,
 };
 
 // ─────────────────────────────────────────────────────────────────────────
-// Scoring rubric — Inquiry Readiness Score (NOT a "good tenant" score)
+// Scoring rubric
 // ─────────────────────────────────────────────────────────────────────────
 
 export const CATEGORY_WEIGHTS = {
@@ -256,92 +220,8 @@ export const SCORE_CATEGORY_KEYS = Object.keys(CATEGORY_WEIGHTS) as ScoreCategor
 
 export const SCORING_RUBRIC = `
 INQUIRY READINESS SCORE — WEIGHTED 100-POINT MODEL
-
-This score measures ONE thing: how complete and operationally ready the
-inquiry is for agent follow-up. It does NOT measure whether the person
-"deserves" housing, their creditworthiness, or their likelihood of being
-approved — those are property-specific decisions for a human housing
-professional. Score each category independently, then sum them. The
-"score" field in structuredData MUST equal the exact arithmetic sum of
-all 7 category scores.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. CONTACT INFORMATION COMPLETE (scoreContactComplete, weight 10):
-  9–10: Full name and at least one reachable contact method (phone or
-        email) both provided.
-  5–8:  Name provided but contact method is incomplete or ambiguous.
-  0–4:  Name or contact method missing entirely.
-
-2. HOUSING REQUIREMENTS CLEAR (scoreHousingRequirementsClear, weight 15):
-  13–15: Property interest, home type, AND preferred area(s) all stated
-         (even "flexible"/"general search" counts as stated, not missing).
-  8–12:  Two of the three provided.
-  3–7:   Only one of the three provided.
-  0–2:   None provided.
-
-3. MOVE-IN TIMELINE CLEAR (scoreMoveInTimelineClear, weight 15):
-  13–15: A specific timeline bucket given, OR "exploring options" stated
-         explicitly (exploring is a clear, valid answer — not a penalty).
-  6–12:  Vague timeline language without a clear bucket.
-  0–5:   No timeline information at all.
-
-4. FINANCIAL INFORMATION PROVIDED (scoreFinancialInformationProvided, weight 15):
-  13–15: Budget range AND payment source(s) both stated — INCLUDING when
-         the payment source is a housing subsidy/lawful assistance
-         program, which counts exactly the same as employment income for
-         this score. "Prefer to discuss with agent" for payment source
-         also counts as a complete, valid answer.
-  6–12:  Only one of budget/payment-source provided.
-  0–5:   Neither provided.
-
-5. PAYMENT/DOCUMENTATION CONTEXT COMPLETE (scorePaymentDocumentationContext, weight 15):
-  13–15: Payment source context is fully resolved — either a
-         straightforward income source, OR (if a subsidy was mentioned)
-         the program type and documentation-availability follow-up were
-         both answered.
-  6–12:  Payment source given but the subsidy follow-up (if triggered)
-         wasn't completed, or is only partially resolved.
-  0–5:   No payment context at all.
-
-6. DOCUMENT READINESS (scoreDocumentReadiness, weight 15):
-  13–15: A specific, itemized set of documents client is prepared to
-         provide.
-  6–12:  A general "not sure what will be required" or partial list.
-  0–5:   No document-readiness information at all.
-
-7. PROPERTY MATCH INFORMATION (scorePropertyMatchInformation, weight 15):
-  13–15: Home type, area, AND any stated requirements/pets together paint
-         a clear enough picture to search listings against.
-  6–12:  Partial picture — some search criteria given, others missing.
-  0–5:   Not enough information to begin a property search.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CHAIN-OF-THOUGHT REQUIREMENT (mandatory — prevents score hallucination):
-For every category, before assigning a numeric score you MUST first locate
-and quote (≤20 words, verbatim from the collected intake data) the specific
-client statement that justifies the score. If no supporting statement
-exists for a higher band, drop to the band that matches what was actually
-said — do not infer or assume information the client did not give. This
-evidence must be returned in "categoryEvidence" before the numeric scores
-are written.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-INQUIRY STATUS BANDS (based on final score — these are OPERATIONAL
-statuses about inquiry completeness, never eligibility verdicts):
-  80–100 → 🟢 Ready for Agent Review      — Inquiry is substantially complete.
-  50–79  → 🟡 Additional Info Needed     — Promising, but incomplete.
-  0–49   → ⚪ Inquiry Incomplete         — Needs more intake before follow-up.
-
-Separately from the score, a 🔵 Property-Specific Review flag is added
-(never in place of the score band, always alongside it) whenever: the
-client named a specific property/listing, mentioned housing assistance,
-or raised something requiring documentation-requirement review by the
-agency. This flag is informational routing, not a penalty.
+This score measures completeness and operational readiness for agent follow-up. It does not measure tenant desirability or eligibility.
 `;
-
-// ─────────────────────────────────────────────────────────────────────────
-// Derived-label helpers
-// ─────────────────────────────────────────────────────────────────────────
 
 export function inquiryStatus(score: number): {
   label: string;
@@ -353,13 +233,6 @@ export function inquiryStatus(score: number): {
   return { label: "Inquiry Incomplete", emoji: "⚪", nextStep: "Gather additional intake information before follow-up." };
 }
 
-/**
- * Assembles the full agent-facing Rental Inquiry Brief as a deterministic
- * template from already-validated fields, mirroring buildFullBuyerReport
- * in the Buyer RRU — the model's only job is the narrative KEY FINDINGS
- * paragraph; every other line is assembled server-side from validated
- * data so formatting and fair-housing phrasing can never drift.
- */
 export function buildFullRentalReport(
   sd: Record<string, unknown>,
   answers: Record<string, unknown>,
@@ -415,7 +288,7 @@ export function buildFullRentalReport(
     `   ${str(sd.additionalNotes ?? answers.additionalNotes, "None provided.")}`,
     "",
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-    "🔵 PROPERTY-SPECIFIC REVIEW ITEMS (routing only — not a penalty):",
+    "🔵 PROPERTY-SPECIFIC REVIEW ITEMS:",
     ...(reviewFlags.length > 0
       ? reviewFlags.map((f) => `  - ${f}`)
       : ["  - None — no items require special routing."]),
@@ -425,188 +298,59 @@ export function buildFullRentalReport(
     "",
     "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
     "RRU assists with information collection and inquiry organization only.",
-    "It does not approve, deny, or make housing eligibility decisions.",
-    "Property owners, managers, and licensed professionals are responsible",
-    "for applying applicable laws and consistent property-specific criteria.",
   ].join("\n");
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// System-instruction builders
+// System-instruction builders with Bilingual Support Helper
 // ─────────────────────────────────────────────────────────────────────────
 
-export function buildEvaluateSystemInstruction(phaseNum: number): string {
+export function getLanguageInstruction(lang: string): string {
+  if (lang === "es") {
+    return `
+─────────────────────────────────────────
+LANGUAGE REQUIREMENT (CRITICAL — SPANISH)
+─────────────────────────────────────────
+You MUST conduct this entire interaction, write all agent responses, and phrase all pushback or follow-up questions in fluent, natural, professional Spanish (Español), appropriate for renters in New York City (the Bronx). Ensure fair housing terminology aligns with standard NYC housing practices in Spanish. Keep internal JSON keys and extractedData clean.`;
+  }
+  return "";
+}
+
+export function buildEvaluateSystemInstruction(phaseNum: number, language: string = "en"): string {
   const phaseRule = PHASE_RULES[phaseNum];
   const nextTopic = PHASE_TOPIC_LABELS[phaseNum + 1];
   const crossPhaseSection = nextTopic
     ? `
 ─────────────────────────────────────────
-CROSS-PHASE AWARENESS (perform on every turn where you're about to advance)
+CROSS-PHASE AWARENESS
 ─────────────────────────────────────────
-If you're advancing (isValid true, no hold-back), the NEXT question the
-app will ask is about: ${nextTopic}.
-
-Check whether the client's CURRENT answer, or anything in Previously
-Collected, already substantially answers that SPECIFIC upcoming
-question — not just something loosely related to the same general
-subject. This should fire RARELY. Most phase transitions have no
-meaningful overlap, and defaulting to null is the correct outcome for
-the large majority of turns.
-
-The bar is: would asking the upcoming question WITHOUT any lead-in feel,
-to a reasonable person, like "didn't I just tell you that?" If the honest
-answer is "not really, it's just thematically adjacent," set it to null.
-
-Concretely, being about the same broad subject (all of these are "about
-the rental," "about the property," or "about the search") is NOT enough
-to count as overlap:
-  - A location/cross-street mentioned earlier is relevant to a later
-    QUESTION ABOUT PREFERRED AREAS (genuine overlap — same specific
-    thing). It is NOT relevant to a later question about pets, parking,
-    documents, or search stage, even though all of those are also
-    "about the property" in a loose sense. Do not stretch for a
-    connection between different specific topics just because they share
-    a general category.
-  - A move-in date mentioned earlier is relevant to a later question that
-    ALSO asks for a date/timeline. It is NOT relevant to a later question
-    about search STAGE (just starting / actively searching / etc.) — a
-    date and a stage are different specific things even though both
-    relate to timing.
-  - Confirming a specific document (e.g. "yes, voucher docs are ready")
-    is NOT itself something to re-surface when a later, broader question
-    asks what OTHER documents they have — the client isn't expected to
-    re-list everything they've already confirmed, and prompting them as
-    если they need to is what causes an unnecessary "wait, do you still
-    have that?" loop. Only surface it if their new answer actually
-    conflicts with it (see the OMISSION IS NOT CONTRADICTION rule below).
-  - The interview's closing "anything else?" question should almost
-    always get null here — it is intentionally open-ended, and prefacing
-    it with a summary of two unrelated earlier answers makes it feel like
-    a pop quiz rather than an open invitation.
-
-If you find a genuine, specific-to-specific match: populate
-"priorContextNote" with a short (≤20 word), second-person acknowledgment
-— e.g. "You mentioned wanting to be near the 233rd St/White Plains Rd
-subway earlier." If there's any doubt, set it to null.`
+If advancing, check if the upcoming topic (${nextTopic}) was already covered. If so, populate "priorContextNote". Otherwise set to null.`
     : `
 ─────────────────────────────────────────
 CROSS-PHASE AWARENESS
 ─────────────────────────────────────────
-This is the final phase — there is no next question. Set
-"priorContextNote" to null.`;
+This is the final phase. Set "priorContextNote" to null.`;
 
   return `You are the RRU Rental Inquiry Assistant. You are warm, patient, and professional — an information-gathering assistant, never a gatekeeper and never a decision-maker. Your job is to collect rental-inquiry information conversationally so a human agent can follow up efficiently.
 ${FAIR_HOUSING_HARD_RULES}
+${getLanguageInstruction(language)}
 ─────────────────────────────────────────
 IDENTITY AND CONDUCT
 ─────────────────────────────────────────
-- You are conducting a structured intake, not a screening interview. Uncertainty ("I don't know," "not sure," "prefer to discuss") is NEVER treated as a failure — it is routed through the phase's pushback script.
-- Only reject an answer when the phase rule below explicitly says to reject it. When in doubt, accept and move forward.
+- You are conducting a structured intake, not a screening interview. Uncertainty is never penalized and is routed through pushback scripts.
+- Only reject an answer when explicit phase rules say to reject it.
 
 ─────────────────────────────────────────
-CONSISTENCY CHECK (perform on every turn)
+CONSISTENCY & FOLLOW-UP
 ─────────────────────────────────────────
-Before evaluating the current answer, compare it against Previously
-Collected data (allAnswers). If the current answer contradicts an earlier
-answer materially, set "inconsistencyDetected" to true, name the
-contradiction neutrally in agentResponse, and ask which value is current
-— set advancePhase to false for that turn. Otherwise set
-"inconsistencyDetected" to false.
-
-OMISSION IS NOT CONTRADICTION: a new answer that simply doesn't repeat
-something already confirmed is NOT a contradiction — it's just a
-different, narrower question being answered. Example: if the client
-confirmed voucher documentation is ready in Phase 9, and Phase 10 asks
-"which OTHER documents can you provide" and they answer with only an ID,
-that is not a retraction of the voucher confirmation — it's an answer to
-a different question. Only set "inconsistencyDetected" when the new
-answer actively conflicts with an earlier one (e.g. stating a DIFFERENT,
-incompatible value for the SAME specific fact), never merely because it
-doesn't restate something already known.
-
-─────────────────────────────────────────
-DYNAMIC FOLLOW-UP (perform on every turn)
-─────────────────────────────────────────
-A "high-value disclosure" is an answer that materially affects inquiry
-completeness — most notably, per Phase 9's rule, a mention of housing
-assistance/subsidy. If the current answer contains one, set
-"followUpTriggered" to true and ask exactly ONE targeted, neutrally-framed
-follow-up question in agentResponse; set advancePhase to false unless the
-client's current answer already contains the follow-up detail. Otherwise
-set "followUpTriggered" to false.
-
-MERGE, DON'T OVERWRITE, ACROSS FOLLOW-UP TURNS: when a follow-up resolves
-over multiple turns, "extractedData" on the LATER turn must be the FULL
-combined picture, not just the latest turn's answer in isolation. Check
-Previously Collected for a partial answer already stored for THIS phase
-from an earlier turn, and merge the new detail into it rather than
-replacing it. Concretely: if the client said "income and a voucher" on
-turn 1, then "Section 8" on turn 2, then "yes, ready" on turn 3, the
-extractedData on turn 3 must be something like "Employment income and a
-Section 8 voucher (documentation ready)" — not just "Section 8 voucher
-(documentation ready)" with the income detail silently dropped. Losing
-information the client already gave, just because a later turn didn't
-repeat it, is a real data-integrity failure, not a minor phrasing choice.
+- Perform consistency checks against previously collected answers.
+- Trigger dynamic follow-ups for high-value disclosures like housing assistance.
 ${crossPhaseSection}
 
 ─────────────────────────────────────────
 PHASE RULE
 ─────────────────────────────────────────
 ${phaseRule}
-
-─────────────────────────────────────────
-AGENTRESPONSE CONTRACT (critical — prevents the conversation from stalling)
-─────────────────────────────────────────
-- ADVANCING (advancePhase true): "agentResponse" is ONLY a brief, warm
-  acknowledgment — 1–2 sentences, no question. Do NOT ask the next
-  phase's question yourself; the application asks it separately.
-- HOLDING (advancePhase false): "agentResponse" MUST itself contain the
-  actual question the client needs to answer next (pushback script,
-  follow-up question, or consistency confirmation) — there is no separate
-  message asking it in this case.
-
-─────────────────────────────────────────
-CLARIFICATION REQUEST CHECK (perform FIRST, before relevance or the Phase Rule)
-─────────────────────────────────────────
-Distinguish two things that can look similar but are NOT the same:
-  - Uncertainty about the SUBJECT MATTER ("I don't know my budget yet,"
-    "not sure about my timeline") — this is a valid, real answer. Route
-    it through the phase's PUSHBACK script as usual.
-  - Confusion about the QUESTION ITSELF ("not sure what you mean," "what
-    do you mean?," "I don't understand the question," "huh?," "can you
-    clarify?") — this is NOT an answer, even though it isn't blank and
-    even though the phase rule below might otherwise be lenient enough to
-    accept almost anything. The client is telling you the question didn't
-    land, not telling you information about their search.
-
-If the client is asking what the question means rather than attempting
-to answer it: set "isValid" to false, "advancePhase" to false,
-"extractedData" to null, and write an "agentResponse" that REPHRASES the
-question more concretely — ideally with 1–2 concrete examples of the kind
-of thing that would count as an answer — rather than repeating the same
-wording verbatim or, worse, accepting the confusion as if it were a
-substantive reply. This applies on EVERY phase, including Phase 14's
-open-ended closing question — "no wrong answer" means no wrong ANSWER,
-it does not mean a request for clarification should be treated as one.
-
-─────────────────────────────────────────
-RELEVANCE CHECK (perform BEFORE applying the Phase Rule's ACCEPT/REJECT criteria)
-─────────────────────────────────────────
-The "Question" in the user message is the exact text the client just saw.
-Check whether the answer actually responds to THAT specific question, not
-just the phase's general topic — a budget mentioned while being asked
-about pets is not a valid answer to the pets question, even though it's
-still rental-related. If non-responsive: isValid=false, advancePhase=false,
-extractedData=null, and agentResponse should warmly acknowledge what they
-said, note you'll come back to it, and re-ask the actual question.
-
-─────────────────────────────────────────
-ADVANCE-PHASE RULE
-─────────────────────────────────────────
-If "isValid" is true and the answer satisfies the Phase Rule, "advancePhase"
-MUST be true, except when "inconsistencyDetected" or "followUpTriggered"
-legitimately holds the phase per the sections above. When genuinely
-uncertain, prefer advancing over stalling.
 
 ─────────────────────────────────────────
 RESPONSE FORMAT — return ONLY a valid JSON object, no markdown, no preamble
@@ -623,15 +367,9 @@ RESPONSE FORMAT — return ONLY a valid JSON object, no markdown, no preamble
 }
 
 export function buildReportSystemInstruction(): string {
-  return `You are RRU — the Rental Inquiry reporting engine. Your output is read by a rental agent deciding what to do next with this inquiry. You are NOT writing a message to the applicant — you are writing an internal inquiry brief for the agent.
+  return `You are RRU — the Rental Inquiry reporting engine. Your output is read by a rental agent deciding what to do next with this inquiry. You are NOT writing a message to the applicant — you are writing an internal English inquiry brief for the agent.
 ${FAIR_HOUSING_HARD_RULES}
 ${SCORING_RUBRIC}
-
-CRITICAL SCORING RULES:
-1. For every category, first populate "categoryEvidence" with a short (≤20 word) quote or "no statement provided" note — before the numeric score for that category is written.
-2. The "score" field MUST equal the exact arithmetic sum of all 7 category scores.
-3. Score only what is explicitly supported by the collected intake data.
-4. A housing-assistance/subsidy mention is COMPLETE financial information — it must never lower "scoreFinancialInformationProvided" or "scorePaymentDocumentationContext" relative to an equivalent employment-income answer.
 
 RESPONSE FORMAT — return ONLY a valid JSON object. No markdown. No preamble.
 {
@@ -672,13 +410,5 @@ RESPONSE FORMAT — return ONLY a valid JSON object. No markdown. No preamble.
     "recommendedNextStep": string
   },
   "keyFindings": string
-}
-
-"keyFindings" is a 2-4 sentence plain-English summary for the AGENT (not
-the applicant), in the style: "Prospect is actively searching for a
-two-bedroom apartment in the Bronx with a target move-in within 30 days.
-Housing requirements and budget have been provided. Documentation
-readiness appears strong. Agent follow-up recommended." Ground every
-stated fact in the intake data — never invent figures, and never phrase
-anything as an eligibility judgment.`;
+}`;
 }

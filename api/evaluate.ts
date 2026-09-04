@@ -5,9 +5,7 @@
  * handler: prompt text and phase rules live in lib/constants.ts,
  * model-calling/retry logic lives in lib/gemini-client.ts. This file
  * validates the request shape, calls generateJSON(), and recomputes
- * "advancePhase" itself rather than trusting the model's own value —
- * same fix applied to the Buyer RRU after a real production bug where a
- * model-trusted advancePhase silently desynced from the conversation.
+ * "advancePhase" itself rather than trusting the model's own value.
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -19,6 +17,7 @@ interface EvaluateRequestBody {
   question: string;
   answer: string;
   allAnswers?: Record<string, unknown>;
+  language?: string;
 }
 
 interface EvaluateResult {
@@ -28,9 +27,6 @@ interface EvaluateResult {
   advancePhase: boolean;
   inconsistencyDetected: boolean;
   followUpTriggered: boolean;
-  /** Short acknowledgment of already-given info relevant to the NEXT
-   *  phase's question, so the app can weave it into that question
-   *  instead of asking cold — fixes the "I already told you that" loop. */
   priorContextNote: string | null;
 }
 
@@ -54,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const { phase, question, answer, allAnswers } = (req.body || {}) as EvaluateRequestBody;
+  const { phase, question, answer, allAnswers, language } = (req.body || {}) as EvaluateRequestBody;
 
   if (!phase || !question || answer === undefined || answer === null) {
     res.status(400).json({ error: "Missing required fields: phase, question, answer" });
@@ -67,7 +63,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const systemInstruction = buildEvaluateSystemInstruction(phaseNum);
+  const lang = language === "es" ? "es" : "en";
+  const systemInstruction = buildEvaluateSystemInstruction(phaseNum, lang);
 
   const currentDate = new Date().toLocaleDateString("en-US", {
     year: "numeric",
@@ -77,6 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   });
 
   const prompt = `Today's date: ${currentDate}.
+Language preference: ${lang === "es" ? "Spanish (Español)" : "English"}
 
 Phase: ${phaseNum}
 Question: "${question}"
@@ -104,20 +102,9 @@ Evaluate against the Phase ${phaseNum} rule, run the consistency check against P
     const followUpTriggered = toBool(parsed.followUpTriggered);
     const modelAdvancePhase = toBool(parsed.advancePhase);
 
-    // Self-correcting advancePhase: computed from isValid + extractedData +
-    // the two legitimate hold-back flags, not trusted directly from the
-    // model's own field. See api/evaluate.ts in the Buyer RRU for the
-    // original incident this pattern fixes.
     const advancePhase =
       modelAdvancePhase ||
       (isValid && hasExtractedData && !inconsistencyDetected && !followUpTriggered);
-
-    if (modelAdvancePhase !== advancePhase) {
-      console.warn(
-        `[api/evaluate] Corrected advancePhase: model said ${modelAdvancePhase}, server computed ${advancePhase} ` +
-          `(isValid=${isValid}, hasExtractedData=${hasExtractedData}, inconsistencyDetected=${inconsistencyDetected}, followUpTriggered=${followUpTriggered}).`
-      );
-    }
 
     const result: EvaluateResult = {
       isValid,
@@ -125,7 +112,7 @@ Evaluate against the Phase ${phaseNum} rule, run the consistency check against P
       agentResponse:
         typeof parsed.agentResponse === "string" && parsed.agentResponse.trim().length > 0
           ? parsed.agentResponse.trim()
-          : "Thanks — could you share a bit more so we can move forward?",
+          : (lang === "es" ? "Gracias — ¿podría compartir un poco más para avanzar?" : "Thanks — could you share a bit more so we can move forward?"),
       advancePhase,
       inconsistencyDetected,
       followUpTriggered,
