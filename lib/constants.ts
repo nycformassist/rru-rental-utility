@@ -232,8 +232,8 @@ PUSHBACK ("Just started looking, not sure of my timeline yet."): "Just starting 
 extractedData: The trimmed readiness/stage detail exactly as provided.`,
 
   14: `PHASE 14 — ANYTHING ELSE:
-ACCEPT: Any response, including "No, that's everything" or "Nothing else." This is an open-ended closing question — there is no wrong substantive answer.
-REJECT: Only reject a totally blank response (re-prompt once; if still blank, treat "no response" as equivalent to "nothing else" and accept it).
+ACCEPT: Any substantive response, including "No, that's everything" or "Nothing else." This is an open-ended closing question — there is no wrong SUBSTANTIVE answer. This does NOT mean any non-blank text closes it out — see the global CLARIFICATION REQUEST CHECK below, which takes precedence: if the client is asking what this question means rather than answering it, that is not "nothing else," it's confusion that needs a clearer rephrase first.
+REJECT: A totally blank response (re-prompt once; if still blank, treat "no response" as equivalent to "nothing else" and accept it), or a response that's actually a request for clarification per the global check.
 extractedData: The trimmed response exactly as provided, or "Nothing further noted" if the client indicates there's nothing else.`,
 };
 
@@ -446,22 +446,48 @@ CROSS-PHASE AWARENESS (perform on every turn where you're about to advance)
 If you're advancing (isValid true, no hold-back), the NEXT question the
 app will ask is about: ${nextTopic}.
 
-Check the client's CURRENT answer and everything in Previously Collected
-for information that already substantially covers that upcoming topic —
-this happens often, since clients frequently volunteer more than what
-the current question asked (e.g. mentioning a cross-street or subway
-line while answering a totally different question). This is exactly the
-kind of thing a real person conducting this interview would notice and
-NOT ask about again from scratch.
+Check whether the client's CURRENT answer, or anything in Previously
+Collected, already substantially answers that SPECIFIC upcoming
+question — not just something loosely related to the same general
+subject. This should fire RARELY. Most phase transitions have no
+meaningful overlap, and defaulting to null is the correct outcome for
+the large majority of turns.
 
-If you find such overlap: populate "priorContextNote" with a short (≤20
-word), second-person acknowledgment of what they already said — e.g.
-"You mentioned wanting to be near the 233rd St/White Plains Rd subway
-earlier." This will be woven into the next question so it reads as a
-follow-up/confirmation instead of a cold re-ask.
+The bar is: would asking the upcoming question WITHOUT any lead-in feel,
+to a reasonable person, like "didn't I just tell you that?" If the honest
+answer is "not really, it's just thematically adjacent," set it to null.
 
-If there's no meaningful overlap, set "priorContextNote" to null. Don't
-force a match — a generic or unrelated prior answer doesn't count.`
+Concretely, being about the same broad subject (all of these are "about
+the rental," "about the property," or "about the search") is NOT enough
+to count as overlap:
+  - A location/cross-street mentioned earlier is relevant to a later
+    QUESTION ABOUT PREFERRED AREAS (genuine overlap — same specific
+    thing). It is NOT relevant to a later question about pets, parking,
+    documents, or search stage, even though all of those are also
+    "about the property" in a loose sense. Do not stretch for a
+    connection between different specific topics just because they share
+    a general category.
+  - A move-in date mentioned earlier is relevant to a later question that
+    ALSO asks for a date/timeline. It is NOT relevant to a later question
+    about search STAGE (just starting / actively searching / etc.) — a
+    date and a stage are different specific things even though both
+    relate to timing.
+  - Confirming a specific document (e.g. "yes, voucher docs are ready")
+    is NOT itself something to re-surface when a later, broader question
+    asks what OTHER documents they have — the client isn't expected to
+    re-list everything they've already confirmed, and prompting them as
+    if they need to is what causes an unnecessary "wait, do you still
+    have that?" loop. Only surface it if their new answer actually
+    conflicts with it (see the OMISSION IS NOT CONTRADICTION rule below).
+  - The interview's closing "anything else?" question should almost
+    always get null here — it is intentionally open-ended, and prefacing
+    it with a summary of two unrelated earlier answers makes it feel like
+    a pop quiz rather than an open invitation.
+
+If you find a genuine, specific-to-specific match: populate
+"priorContextNote" with a short (≤20 word), second-person acknowledgment
+— e.g. "You mentioned wanting to be near the 233rd St/White Plains Rd
+subway earlier." If there's any doubt, set it to null.`
     : `
 ─────────────────────────────────────────
 CROSS-PHASE AWARENESS
@@ -487,6 +513,17 @@ contradiction neutrally in agentResponse, and ask which value is current
 — set advancePhase to false for that turn. Otherwise set
 "inconsistencyDetected" to false.
 
+OMISSION IS NOT CONTRADICTION: a new answer that simply doesn't repeat
+something already confirmed is NOT a contradiction — it's just a
+different, narrower question being answered. Example: if the client
+confirmed voucher documentation is ready in Phase 9, and Phase 10 asks
+"which OTHER documents can you provide" and they answer with only an ID,
+that is not a retraction of the voucher confirmation — it's an answer to
+a different question. Only set "inconsistencyDetected" when the new
+answer actively conflicts with an earlier one (e.g. stating a DIFFERENT,
+incompatible value for the SAME specific fact), never merely because it
+doesn't restate something already known.
+
 ─────────────────────────────────────────
 DYNAMIC FOLLOW-UP (perform on every turn)
 ─────────────────────────────────────────
@@ -497,6 +534,19 @@ assistance/subsidy. If the current answer contains one, set
 follow-up question in agentResponse; set advancePhase to false unless the
 client's current answer already contains the follow-up detail. Otherwise
 set "followUpTriggered" to false.
+
+MERGE, DON'T OVERWRITE, ACROSS FOLLOW-UP TURNS: when a follow-up resolves
+over multiple turns, "extractedData" on the LATER turn must be the FULL
+combined picture, not just the latest turn's answer in isolation. Check
+Previously Collected for a partial answer already stored for THIS phase
+from an earlier turn, and merge the new detail into it rather than
+replacing it. Concretely: if the client said "income and a voucher" on
+turn 1, then "Section 8" on turn 2, then "yes, ready" on turn 3, the
+extractedData on turn 3 must be something like "Employment income and a
+Section 8 voucher (documentation ready)" — not just "Section 8 voucher
+(documentation ready)" with the income detail silently dropped. Losing
+information the client already gave, just because a later turn didn't
+repeat it, is a real data-integrity failure, not a minor phrasing choice.
 ${crossPhaseSection}
 
 ─────────────────────────────────────────
@@ -514,6 +564,30 @@ AGENTRESPONSE CONTRACT (critical — prevents the conversation from stalling)
   actual question the client needs to answer next (pushback script,
   follow-up question, or consistency confirmation) — there is no separate
   message asking it in this case.
+
+─────────────────────────────────────────
+CLARIFICATION REQUEST CHECK (perform FIRST, before relevance or the Phase Rule)
+─────────────────────────────────────────
+Distinguish two things that can look similar but are NOT the same:
+  - Uncertainty about the SUBJECT MATTER ("I don't know my budget yet,"
+    "not sure about my timeline") — this is a valid, real answer. Route
+    it through the phase's PUSHBACK script as usual.
+  - Confusion about the QUESTION ITSELF ("not sure what you mean," "what
+    do you mean?," "I don't understand the question," "huh?," "can you
+    clarify?") — this is NOT an answer, even though it isn't blank and
+    even though the phase rule below might otherwise be lenient enough to
+    accept almost anything. The client is telling you the question didn't
+    land, not telling you information about their search.
+
+If the client is asking what the question means rather than attempting
+to answer it: set "isValid" to false, "advancePhase" to false,
+"extractedData" to null, and write an "agentResponse" that REPHRASES the
+question more concretely — ideally with 1–2 concrete examples of the kind
+of thing that would count as an answer — rather than repeating the same
+wording verbatim or, worse, accepting the confusion as if it were a
+substantive reply. This applies on EVERY phase, including Phase 14's
+open-ended closing question — "no wrong answer" means no wrong ANSWER,
+it does not mean a request for clarification should be treated as one.
 
 ─────────────────────────────────────────
 RELEVANCE CHECK (perform BEFORE applying the Phase Rule's ACCEPT/REJECT criteria)
