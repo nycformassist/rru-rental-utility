@@ -222,7 +222,7 @@ export default function App() {
   const [lastAssistantMessage, setLastAssistantMessage] = useState(INTAKE_QUESTIONS.en[0].question);
 
   const handleLanguageChange = (newLang: Language) => {
-    if (currentPhase > 1 || isFinished) return; // Lock language switch after intake starts to keep prompts aligned
+    if (currentPhase > 1 || isFinished) return;
     setLanguage(newLang);
     setMessages([{ id: "init", role: "model", text: INTAKE_QUESTIONS[newLang][0].question }]);
     setLastAssistantMessage(INTAKE_QUESTIONS[newLang][0].question);
@@ -415,6 +415,34 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-900 overflow-hidden flex-col md:flex-row">
+      
+      {/* MOBILE HEADER BAR WITH LANGUAGE TOGGLE */}
+      <div className="md:hidden bg-slate-900 text-white px-4 py-3 flex items-center justify-between border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+          <span className="font-bold tracking-tight uppercase text-xs">
+            RRU™ Rental Inquiry
+          </span>
+        </div>
+        {currentPhase === 1 && !isFinished && (
+          <div className="flex gap-1 bg-slate-800 p-1 rounded">
+            <button
+              onClick={() => handleLanguageChange("en")}
+              className={`px-2.5 py-1 text-[11px] font-mono rounded ${language === "en" ? "bg-indigo-600 text-white font-bold" : "text-slate-400"}`}
+            >
+              EN
+            </button>
+            <button
+              onClick={() => handleLanguageChange("es")}
+              className={`px-2.5 py-1 text-[11px] font-mono rounded ${language === "es" ? "bg-indigo-600 text-white font-bold" : "text-slate-400"}`}
+            >
+              ES
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* DESKTOP SIDEBAR */}
       <aside className="hidden md:flex w-72 bg-slate-900 text-slate-300 flex-col border-r border-slate-800 shrink-0">
         <div className="p-6 border-b border-slate-800 flex justify-between items-center">
           <div>
