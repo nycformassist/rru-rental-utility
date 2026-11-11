@@ -47,8 +47,11 @@ function envOrDefault(name: string, fallback: string): string {
 // ignored in local dev.
 export function getModelNames(): { primary: string; fallback: string } {
   return {
-    primary: envOrDefault("GEMINI_MODEL_NAME", "gemini-2.5-flash"),
-    fallback: envOrDefault("GEMINI_FALLBACK_MODEL_NAME", "gemini-2.0-flash"),
+    // Vertex AI models proven live on this project (Inner Temple Live Ask):
+    // gemini-2.5-flash / gemini-2.0-flash retired on Vertex (2.5-flash on
+    // 20 Oct 2026) and would 404 — use the 3.8/3.5 pair instead.
+    primary: envOrDefault("GEMINI_MODEL_NAME", "gemini-3.8-flash"),
+    fallback: envOrDefault("GEMINI_FALLBACK_MODEL_NAME", "gemini-3.5-flash"),
   };
 }
 
