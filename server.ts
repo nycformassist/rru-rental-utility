@@ -4,7 +4,7 @@
  * Runs Express + Vite dev middleware on a single port so that:
  * - POST /api/evaluate        →  api/evaluate.ts (Rental per-phase gatekeeping)
  * - POST /api/generate-report →  api/generate-report.ts (Rental inquiry brief)
- * - POST /api/intake          →  api/intake.ts (email delivery via Resend)
+ * - POST /api/submit-inquiry  →  api/submit-inquiry.ts (report + email, server-side)
  * - Everything else           →  served by Vite (React SPA with HMR)
  *
  * The route handlers are the SAME modules Vercel runs in production
@@ -17,21 +17,29 @@
  * the 14-phase RRU Rental utility — local dev could not run the actual
  * Rental flow at all. All LIRU/PI code was deleted in that fix.
  *
- * Usage:  npx tsx server.ts
- *   (requires GEMINI_API_KEY in .env; RESEND_API_KEY is required by
- *   /api/intake at request time.)
+ * Carbon Pass 2, Finding 1: `import "./lib/env.js"` MUST stay the first
+ * import — in Node ESM, static imports evaluate before top-level code,
+ * so dotenv has to run before the api/*.ts -> lib/constants.js chain is
+ * evaluated, or .env values are silently ignored.
+ *
+ * Carbon Pass 2, Finding 2: /api/intake is gone. Report generation and
+ * email dispatch now happen together in /api/submit-inquiry so the
+ * client can never hand the server arbitrary report content to email.
+ *
+ * Usage:  npm run dev        (tsx server.ts)
+ *   (requires GEMINI_API_KEY in .env.local or .env; RESEND_API_KEY is
+ *   required by /api/submit-inquiry at request time.)
  */
 
+// MUST be first: loads .env.local / .env before any other module evaluates.
+import "./lib/env.js";
 import express from "express";
 import type { Request, Response } from "express";
 import { createServer as createViteServer } from "vite";
-import dotenv from "dotenv";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import evaluateHandler from "./api/evaluate.js";
 import generateReportHandler from "./api/generate-report.js";
-import intakeHandler from "./api/intake.js";
-
-dotenv.config();
+import submitInquiryHandler from "./api/submit-inquiry.js";
 
 const PORT = process.env.PORT || 5173;
 
@@ -50,14 +58,14 @@ async function main() {
   app.use(express.json({ limit: "1mb" }));
 
   if (!process.env.GEMINI_API_KEY) {
-    console.error("[server] FATAL: GEMINI_API_KEY is not set in .env");
+    console.error("[server] FATAL: GEMINI_API_KEY is not set in .env.local or .env");
     process.exit(1);
   }
 
   // ── API routes — delegate to the production Vercel handlers ──────────
   app.post("/api/evaluate", vercelAdapter(evaluateHandler));
   app.post("/api/generate-report", vercelAdapter(generateReportHandler));
-  app.post("/api/intake", vercelAdapter(intakeHandler));
+  app.post("/api/submit-inquiry", vercelAdapter(submitInquiryHandler));
 
   // ── Vite dev middleware ───────────────────────────────────────────────
   const vite = await createViteServer({

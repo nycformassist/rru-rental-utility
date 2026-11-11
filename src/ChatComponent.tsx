@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Message, SubmitStatus } from "./App";
+import { Message, SubmitStatus, Language } from "./App";
 import ReactMarkdown from "react-markdown";
-import { CheckCircle2, AlertCircle, AlertTriangle, Pencil } from "lucide-react";
+import { CheckCircle2, AlertCircle, Pencil } from "lucide-react";
 
 interface IntakeQuestion {
   field: string;
@@ -11,12 +11,17 @@ interface IntakeQuestion {
 
 interface FieldMeta {
   key: string;
-  label: string;
+  // Carbon Pass 2, Finding 8: review labels are bilingual — the Review
+  // screen used to be English-only even in Spanish mode.
+  label: { en: string; es: string };
   critical: boolean;
 }
 
 interface ChatComponentProps {
   messages: Message[];
+  // Carbon Pass 2, Finding 8: the component did not even accept a
+  // language prop — every review/footer string was hardcoded English.
+  language: Language;
   onSendMessage: (text: string) => void;
   onFinish: () => void;
   isLoading: boolean;
@@ -41,6 +46,7 @@ function isErrorMessage(text: string): boolean {
 
 export function ChatComponent({
   messages,
+  language,
   onSendMessage,
   onFinish,
   isLoading,
@@ -91,11 +97,14 @@ export function ChatComponent({
   const isInputDisabled =
     isLoading || isFinished || submitStatus === "submitting" || showReview;
 
-  const reviewFields = allFields || (intakeQuestions || []).map((q) => ({
-    key: q.field,
-    label: q.field.replace(/([A-Z])/g, " $1").trim(),
-    critical: ["fullName", "contactInfo"].includes(q.field),
-  }));
+  const reviewFields = allFields || (intakeQuestions || []).map((q) => {
+    const derived = q.field.replace(/([A-Z])/g, " $1").trim();
+    return {
+      key: q.field,
+      label: { en: derived, es: derived },
+      critical: ["fullName", "contactInfo"].includes(q.field),
+    };
+  });
 
   // Carbon Pass 1, finding #9: only CRITICAL fields gate submission.
   // The previous version counted every empty field, so clearing a
@@ -193,8 +202,12 @@ export function ChatComponent({
               </div>
               <span className="text-[11px] text-slate-400 font-medium italic">
                 {submitStatus === "submitting"
-                  ? "Finalizing your rental inquiry brief..."
-                  : "RRU™ is analyzing..."}
+                  ? language === "es"
+                    ? "Finalizando su resumen de consulta..."
+                    : "Finalizing your rental inquiry brief..."
+                  : language === "es"
+                    ? "RRU™ está analizando..."
+                    : "RRU™ is analyzing..."}
               </span>
             </div>
           </div>
@@ -206,7 +219,7 @@ export function ChatComponent({
             <div className="flex items-center gap-2 mb-2 pb-3 border-b border-slate-100">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
-                Review Your Rental Inquiry
+                {language === "es" ? "Revise su consulta de alquiler" : "Review Your Rental Inquiry"}
               </h3>
             </div>
             
@@ -231,7 +244,7 @@ export function ChatComponent({
                 return (
                   <div key={field.key} className="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-4 py-2 border-b border-slate-50 last:border-0">
                     <div className="sm:w-48 text-xs font-semibold text-slate-500 uppercase tracking-wider shrink-0 mt-0.5">
-                      {field.label}
+                      {field.label[language]}
                       {field.critical && <span className="text-red-400 ml-1" title="Required">*</span>}
                     </div>
                     <div className="flex-1">
@@ -250,6 +263,9 @@ export function ChatComponent({
                             }
                           }}
                           rows={2}
+                          // Carbon Pass 2, Finding 9: cap review edits so
+                          // a pasted block cannot exceed the server caps.
+                          maxLength={1500}
                           className="w-full text-sm text-slate-800 border border-indigo-300 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-200 resize-y"
                         />
                       ) : (
@@ -264,7 +280,7 @@ export function ChatComponent({
                           {answer ? (
                             <span className="text-sm text-slate-800 whitespace-pre-wrap">{answer}</span>
                           ) : (
-                            <span className="text-sm text-slate-400 italic">Not provided</span>
+                            <span className="text-sm text-slate-400 italic">{language === "es" ? "No proporcionado" : "Not provided"}</span>
                           )}
                           {canEdit && (
                             <Pencil className="w-3 h-3 text-slate-300 group-hover:text-slate-500 shrink-0 mt-1 opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -279,7 +295,9 @@ export function ChatComponent({
 
             <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
               <p className="text-[10px] text-slate-400 italic">
-                By submitting, you confirm the above information is accurate. This will be reviewed by our rental team — RRU does not approve, deny, or make eligibility decisions.
+                {language === "es"
+                  ? "Al enviar, confirma que la información anterior es correcta. Será revisada por nuestro equipo de alquileres — RRU no aprueba, niega ni toma decisiones de elegibilidad."
+                  : "By submitting, you confirm the above information is accurate. This will be reviewed by our rental team — RRU does not approve, deny, or make eligibility decisions."}
               </p>
               <button
                 type="button"
@@ -291,7 +309,13 @@ export function ChatComponent({
                 disabled={isLoading || isFinished || submitStatus === "submitting" || emptyCount > 0 || editingField !== null}
                 className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg uppercase tracking-widest disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
               >
-                {isFinished ? "✅ Submitted" : "Submit Inquiry →"}
+                {isFinished
+                  ? language === "es"
+                    ? "✅ Enviada"
+                    : "✅ Submitted"
+                  : language === "es"
+                    ? "Enviar consulta →"
+                    : "Submit Inquiry →"}
               </button>
             </div>
           </div>
@@ -349,8 +373,17 @@ export function ChatComponent({
               onKeyDown={handleKeyDown}
               disabled={isInputDisabled}
               placeholder={
-                isFinished ? "Inquiry complete." : "Type your response here..."
+                isFinished
+                  ? language === "es"
+                    ? "Consulta completa."
+                    : "Inquiry complete."
+                  : language === "es"
+                    ? "Escriba su respuesta aquí..."
+                    : "Type your response here..."
               }
+              // Carbon Pass 2, Finding 9: cap chat answers at 1,500
+              // characters so the payload stays under the server caps.
+              maxLength={1500}
               className="flex-1 bg-transparent px-4 py-3 text-sm outline-none disabled:cursor-not-allowed"
               autoComplete="off"
               spellCheck={false}
@@ -360,7 +393,7 @@ export function ChatComponent({
               disabled={!inputValue.trim() || isInputDisabled}
               className="px-5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold uppercase tracking-widest disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              Send
+              {language === "es" ? "Enviar" : "Send"}
             </button>
           </div>
         </form>

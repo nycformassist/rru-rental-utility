@@ -1,33 +1,31 @@
-# Fortress Intake AI - Roadmap Log
+# RRU Rental Inquiry — Roadmap
 
-## Current Status (v3.1)
-**Objective**: Build a deterministic, highly-controlled 10-phase AI Legal Intake assistant capable of structured data extraction.
+## Current status
+Bilingual (English / Español) 14-step rental inquiry assistant.
+Live at rru-rental-utility.vercel.app. Pricing: $499 + $149/mo.
 
-### Completed Milestones
-- [x] Basic chat interface setup.
-- [x] Integration with `@google/genai` (Flash 3.1).
-- [x] Implementation of the 10-Phase Roadmap structure.
-- [x] UI synchronization based on `[PHASE: X]` prefixes.
-- [x] Strict conversational pacing ("Ping-Pong Rule").
-- [x] Phase 1 Information Gatekeeping (Name, Phone, Email, Opposing Party).
-- [x] Automated legal categorization (Internal inference).
-- [x] On-demand data structuring (JSON generation upon explicit "Finish Interview" command).
+## How it works
+1. Conversational intake (14 phases, Gemini-driven per-phase
+   gatekeeping in `api/evaluate.ts`).
+2. Server-side brief generation with rigid scoring math
+   (`lib/report.ts`, `POST /api/generate-report`).
+3. Single server-side submission (`POST /api/submit-inquiry`):
+   the server generates the brief and emails it to the agency
+   (`lib/email.ts`, Resend). The client never fabricates report content.
 
-### Upcoming Milestones
-- [ ] **Airtable Integration**: Fully wire the `/api/intake` endpoint to push the generated `<STRUCTURED_DATA>` to a live Airtable Base.
-- [ ] **Document Collection**: Add drag-and-drop file upload capabilities to attach files/images to the intake process.
-- [ ] **Authentication/Security**: Add access control to the intake portal.
-- [ ] **Summary Exports**: Enable PDF generation of the `<ATTORNEY_REPORT>` for the client and staff.
-- [ ] **Resilience**: Implement local storage caching so chat sessions survive accidental page reloads.
+## Completed
+- [x] 14-phase bilingual intake with fair-housing guardrails
+- [x] Readiness scoring (100-point weighted model, 7 categories)
+- [x] Server-side report generation + email dispatch
+- [x] Per-IP rate limiting, body caps, strict runtime type checks
+- [x] Carbon Pass 1 + Pass 2 code-tightening reviews and fixes
 
-## The 10-Phase Flow
-1. **Control & Contact**: Name, Phone, Email, Opposing Party
-2. **Case Identification**: Category, Date, Location
-3. **Liability**: Facts, fault, initial evidence
-4. **Damages**: Medical, Financial, Emotional
-5. **Timeline & Urgency**: Deadlines, prior representation
-6. **Recoverability**: Defendant assets, communications
-7. **Client Quality**: Goals, expectations
-8. **Internal Scoring**: Deterministic 0-12 score mapping
-9. **Attorney Report**: Narrative generation (Triggered manually)
-10. **Structured JSON**: Airtable-ready extraction (Triggered manually)
+## Upcoming
+- [ ] Merge `carbon-pass-1-fixes` to main (owner approval) and deploy
+- [ ] End-to-end Preview verification (intake flow + email arrival)
+- [ ] Verify `GEMINI_API_KEY` covers Preview scope on Vercel
+      (it was Production-only, which stalled the Preview intake at
+      Phase 1)
+- [ ] Consider edge-level protection (Vercel Firewall / Turnstile) if
+      abuse becomes a real problem — the in-memory rate limiter is
+      per-function-instance only

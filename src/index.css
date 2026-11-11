@@ -16,60 +16,16 @@ h1, h2, h3, h4, h5, h6, .font-serif {
   font-family: var(--font-serif);
 }
 
-/* ── ANUBIS SEAL WATERMARK ────────────────────────────────────────────────────
-   anubis_seal.png repeats diagonally behind the legal analysis packet.
-   ::before pseudo-element keeps it non-interactive and below all content.
-   @media print forces it into the PDF stream on all browsers.
-   ─────────────────────────────────────────────────────────────────────────── */
-.watermark {
-  display: none; /* legacy text watermark retired */
-}
-
-.analysis-packet {
-  position: relative;
-}
-
-/* ── SOVEREIGN WATERMARK: anubis_seal.png burned into every render surface ──
-   All properties carry !important. No browser, printer, or PDF engine can
-   strip this seal without removing the ::before pseudo-element entirely.
-   ─────────────────────────────────────────────────────────────────────────── */
-.analysis-packet::before {
-  content: '' !important;
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-  background-image: url('/anubis_seal.png') !important;
-  background-repeat: repeat !important;
-  background-size: 160px !important;
-  opacity: 0.06 !important;
-  pointer-events: none !important;
-  z-index: 0 !important;
-  -webkit-print-color-adjust: exact !important;
-  print-color-adjust: exact !important;
-  color-adjust: exact !important;
-}
-
 @media print {
-  /* Force ALL color rendering — required for seal to survive PDF export */
-  -webkit-print-color-adjust: exact !important;
-  print-color-adjust: exact !important;
-  color-adjust: exact !important;
-
-  body {
-    background-color: white;
-  }
-
-  .analysis-packet::before {
-    display: block !important;
-    background-image: url('/anubis_seal.png') !important;
-    background-repeat: repeat !important;
-    background-size: 160px !important;
-    opacity: 0.06 !important;
+  /* Force ALL color rendering for print/PDF export */
+  * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     color-adjust: exact !important;
+  }
+
+  body {
+    background-color: white;
   }
 
   .no-print {

@@ -1,6 +1,6 @@
 {
-  "name": "Remix: True Legal Intake  V3.0",
-  "description": "A legal intake AI bot prototype integrated with Airtable.",
-  "requestFramePermissions": [],
-  "majorCapabilities": []
+  "description": "RRU Rental Inquiry \u2014 a bilingual 14-step rental inquiry assistant that scores inquiry readiness and emails a Rental Inquiry Brief to the agency.",
+  "majorCapabilities": [],
+  "name": "RRU Rental Inquiry",
+  "requestFramePermissions": []
 }

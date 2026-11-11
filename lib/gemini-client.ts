@@ -23,7 +23,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import { MODEL_NAME, FALLBACK_MODEL_NAME } from "./constants.js";
+import { getModelNames } from "./constants.js";
 
 let client: GoogleGenAI | null = null;
 
@@ -51,7 +51,11 @@ const RETRYABLE_STATUS_CODES = [429, 503];
 // back instead of failing the request outright. 404 is deliberately NOT
 // in RETRYABLE_STATUS_CODES — retrying a bad model ID can never succeed.
 const FAILOVER_STATUS_CODES = [404, 429, 503];
-const MAX_ATTEMPTS_PER_MODEL = 3;
+// Carbon Pass 2, Finding 10: worst-case retry latency exceeded the
+// Vercel Hobby function timeout (3 attempts x primary + 3 x fallback =
+// 6 Gemini calls per invocation, and the client retried 503s on top of
+// that). 2 attempts per model = 4 fast attempts max.
+const MAX_ATTEMPTS_PER_MODEL = 2;
 const BASE_DELAY_MS = 800;
 
 function sleep(ms: number): Promise<void> {
@@ -63,8 +67,18 @@ function sleep(ms: number): Promise<void> {
  * raw JSON body, e.g. {"error":{"code":503,"message":"...","status":"UNAVAILABLE"}}.
  * Pull the status code out of that so we can tell "busy, worth retrying"
  * apart from "bad request" or "invalid API key."
+ *
+ * Carbon Pass 2, Fix 1: @google/genai ApiError exposes a numeric
+ * `.status` property directly — check that FIRST. The old code parsed
+ * err.message as JSON/regex, but the message is not guaranteed to
+ * contain raw JSON ("got status: 404 Not Found" returned null), so
+ * failover never triggered on plain-text errors.
  */
 function extractStatusCode(err: unknown): number | null {
+  if (err && typeof err === "object" && "status" in err) {
+    const status = (err as { status: unknown }).status;
+    if (typeof status === "number" && Number.isFinite(status)) return status;
+  }
   const msg = err instanceof Error ? err.message : String(err);
   try {
     const parsed = JSON.parse(msg);
@@ -124,9 +138,9 @@ async function callModelWithRetry(
  * where booleans are expected, no missing required fields.
  */
 export async function generateJSON(systemInstruction: string, prompt: string, responseSchema?: object): Promise<string> {
-  // Model IDs come from lib/constants.ts (env-overridable, valid defaults).
-  const primaryModel = MODEL_NAME;
-  const fallbackModel = FALLBACK_MODEL_NAME;
+  // Model IDs are read lazily at request time (Carbon Pass 2, Fix 1):
+  // module-level reads evaluated before dotenv.config() ran in local dev.
+  const { primary: primaryModel, fallback: fallbackModel } = getModelNames();
 
   try {
     const response = await callModelWithRetry(primaryModel, systemInstruction, prompt, responseSchema);

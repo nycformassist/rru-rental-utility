@@ -56,6 +56,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
+  // Carbon Pass 2, Finding 4: rate-limit FIRST, before inspecting or
+  // stringifying the body.
+  if (!checkRateLimit(`evaluate:${getClientIp(req)}`, RATE_LIMIT, RATE_LIMIT_WINDOW_MS)) {
+    res.status(429).json({ error: "Too many requests — please try again shortly.", retryable: true });
+    return;
+  }
+
   if (!process.env.GEMINI_API_KEY) {
     console.error("[api/evaluate] FATAL: GEMINI_API_KEY is not set");
     res.status(500).json({ error: "Server misconfiguration: missing GEMINI_API_KEY" });
@@ -75,6 +82,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
+  // Carbon Pass 2, Finding 4: strict runtime types — without a string
+  // check, String({foo:"bar"}) silently became "[object Object]" and
+  // was sent to Gemini; without an object check, an array allAnswers
+  // slipped past the size cap.
+  if (typeof answer !== "string") {
+    res.status(400).json({ error: "Answer must be a string" });
+    return;
+  }
+  if (allAnswers !== undefined && (typeof allAnswers !== "object" || allAnswers === null || Array.isArray(allAnswers))) {
+    res.status(400).json({ error: "Collected answers must be an object" });
+    return;
+  }
+
   // Carbon Pass 1, finding #5: enforce body-size caps so oversized
   // payloads cannot drain quota or smuggle prompt content.
   const answerText = String(answer).trim();
@@ -84,11 +104,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (allAnswers !== undefined && JSON.stringify(allAnswers).length > MAX_ALL_ANSWERS_JSON_LENGTH) {
     res.status(400).json({ error: "Collected answers payload exceeds the size limit." });
-    return;
-  }
-
-  if (!checkRateLimit(`evaluate:${getClientIp(req)}`, RATE_LIMIT, RATE_LIMIT_WINDOW_MS)) {
-    res.status(429).json({ error: "Too many requests — please try again shortly.", retryable: true });
     return;
   }
 
@@ -109,13 +124,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     timeZone: "America/New_York",
   });
 
+  // Carbon Pass 2, Finding 6: when this turn is a follow-up on a field
+  // that already has an entry (e.g. the Phase 9 subsidy follow-up), say
+  // so explicitly — otherwise the model returns only the new fragment
+  // and the prior answer gets overwritten downstream.
+  const currentField = INTAKE_QUESTIONS[lang][phaseNum - 1].field;
+  const priorFieldValue =
+    allAnswers && typeof (allAnswers as Record<string, unknown>)[currentField] === "string"
+      ? String((allAnswers as Record<string, unknown>)[currentField]).trim()
+      : "";
+  const followUpNote =
+    priorFieldValue.length > 0
+      ? `\nNOTE: This turn is a FOLLOW-UP on the same phase — the field "${currentField}" already has: "${priorFieldValue}". Your extractedData MUST combine that prior answer and the new detail into one complete summary, never just the new fragment.`
+      : "";
+
   const prompt = `Today's date: ${currentDate}.
 Language preference: ${lang === "es" ? "Spanish (Español)" : "English"}
 
 Phase: ${phaseNum}
 Question: "${canonicalQuestion}"
 Client Answer: "${answerText}"
-Previously Collected: ${JSON.stringify(allAnswers || {})}
+Previously Collected: ${JSON.stringify(allAnswers || {})}${followUpNote}
 
 Evaluate against the Phase ${phaseNum} rule, run the consistency check against Previously Collected, and run the dynamic follow-up check. Return your JSON response.`;
 

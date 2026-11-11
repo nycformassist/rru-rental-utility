@@ -7,7 +7,7 @@ import { defineConfig } from "vite";
  * Vite config — frontend only.
  *
  * No API keys are defined here. All sensitive logic lives server-side
- * (api/intake.ts for Vercel, server.ts for local dev).
+ * (api/submit-inquiry.ts for Vercel, server.ts for local dev).
  */
 export default defineConfig({
   plugins: [react(), tailwindcss()],

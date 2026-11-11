@@ -1,20 +1,49 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# RRU™ Rental Inquiry
 
-# Run and deploy your AI Studio app
-
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/514e68e6-83d1-4fb0-be96-9aa577bba6fe
+A bilingual (English / Español) 14-step rental inquiry assistant for New
+York City renters. It collects applicant information conversationally,
+scores inquiry readiness (0–100), and emails a Rental Inquiry Brief to
+the agency — with hard fair-housing guardrails: a housing subsidy or
+lawful assistance program is never a negative signal and is scored
+exactly like employment income.
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+**Prerequisites:** Node.js
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Set the environment variables in `.env.local` (takes precedence) or
+   `.env`:
+
+   | Variable | Required for | Notes |
+   |---|---|---|
+   | `GEMINI_API_KEY` | AI evaluation + report generation | Google AI Studio (Gemini Developer API) key. NOT a Vertex AI credential. |
+   | `RESEND_API_KEY` | Email dispatch | Resend API key. |
+   | `INTAKE_RECIPIENT_EMAIL` | Email dispatch | Agency inbox that receives the inquiry brief. |
+   | `INTAKE_FROM_EMAIL` | Email dispatch | Sender address. On a Resend account with no verified domain, use the sandbox sender `onboarding@resend.dev` (delivers only to the account owner's inbox). |
+
+   Optional model overrides: `GEMINI_MODEL_NAME` (default
+   `gemini-2.5-flash`), `GEMINI_FALLBACK_MODEL_NAME` (default
+   `gemini-2.0-flash`).
 3. Run the app:
    `npm run dev`
+
+   This starts the Express + Vite dev server (`server.ts`) at
+   http://localhost:5173 with the real API routes (`/api/evaluate`,
+   `/api/generate-report`, `/api/submit-inquiry`).
+
+## How submission works
+
+The client sends ONLY the collected answers to
+`POST /api/submit-inquiry`. The server generates the brief
+(`lib/report.ts`) and emails it (`lib/email.ts`). The client never
+fabricates report content — that closed the phishing vector where an
+unauthenticated caller could email forged reports to staff.
+
+## Deploy
+
+Deploy to Vercel (`vercel.json`): the SPA fallback excludes `/api/`, so
+a missing API route returns 404 JSON instead of 200 HTML. API functions
+run with `maxDuration: 30`. Set the same four environment variables in
+the Vercel project (Preview and Production scopes as needed).

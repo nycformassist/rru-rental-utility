@@ -49,21 +49,28 @@ const ROADMAP_TITLES: Record<Language, string[]> = {
 };
 
 const ALL_FIELDS = [
-  { key: "fullName",             label: "Name",                 critical: true  },
-  { key: "contactInfo",          label: "Contact Information",    critical: true  },
-  { key: "propertyInterest",     label: "Property Interest",      critical: false },
-  { key: "homeType",             label: "Home Type",              critical: false },
-  { key: "preferredAreas",       label: "Preferred Areas",        critical: false },
-  { key: "budgetRange",          label: "Budget Range",           critical: false },
-  { key: "moveInTimeline",       label: "Move-In Timeline",       critical: false },
-  { key: "householdSize",        label: "Household Size",         critical: false },
-  { key: "paymentSources",       label: "Payment Sources",        critical: false },
-  { key: "documentReadiness",    label: "Document Readiness",     critical: false },
-  { key: "rentalHistory",        label: "Rental History",         critical: false },
-  { key: "requirementsAndPets",  label: "Requirements & Pets",    critical: false },
-  { key: "moveInReadinessStage", label: "Move-In Readiness",      critical: false },
-  { key: "additionalNotes",      label: "Additional Notes",       critical: false },
+  { key: "fullName",             label: { en: "Name",                 es: "Nombre" },                critical: true  },
+  { key: "contactInfo",          label: { en: "Contact Information",  es: "Información de contacto" }, critical: true  },
+  { key: "propertyInterest",     label: { en: "Property Interest",    es: "Interés en propiedad" },   critical: false },
+  { key: "homeType",             label: { en: "Home Type",            es: "Tipo de vivienda" },       critical: false },
+  { key: "preferredAreas",       label: { en: "Preferred Areas",      es: "Áreas preferidas" },       critical: false },
+  { key: "budgetRange",          label: { en: "Budget Range",         es: "Rango de presupuesto" },   critical: false },
+  { key: "moveInTimeline",       label: { en: "Move-In Timeline",     es: "Plazo de mudanza" },       critical: false },
+  { key: "householdSize",        label: { en: "Household Size",       es: "Tamaño del hogar" },       critical: false },
+  { key: "paymentSources",       label: { en: "Payment Sources",      es: "Fuentes de pago" },        critical: false },
+  { key: "documentReadiness",    label: { en: "Document Readiness",   es: "Disponibilidad de documentos" }, critical: false },
+  { key: "rentalHistory",        label: { en: "Rental History",       es: "Historial de alquiler" },  critical: false },
+  { key: "requirementsAndPets",  label: { en: "Requirements & Pets",  es: "Requisitos y mascotas" },  critical: false },
+  { key: "moveInReadinessStage", label: { en: "Move-In Readiness",    es: "Disponibilidad para mudarse" }, critical: false },
+  { key: "additionalNotes",      label: { en: "Additional Notes",     es: "Notas adicionales" },      critical: false },
 ];
+
+// Carbon Pass 2, Finding 9: review-screen edits are capped at 1,500
+// characters per field (14 fields x 1,500 = 21,000 chars, safely under
+// the 30,000-byte /api/generate-report cap and the 20,000-char email
+// cap). Without this, pasting a large block into a review field put
+// the form into an unsubmittable state with only a generic error.
+const MAX_EDIT_LENGTH = 1500;
 
 function toBool(value: unknown): boolean {
   if (typeof value === "boolean") return value;
@@ -85,7 +92,10 @@ function validateInputLength(text: string, lang: Language): string | null {
     return lang === "es"
       ? "Se requiere una respuesta para continuar."
       : "A response is required before continuing.";
-  if (t.length > 4000)
+  // Carbon Pass 2, Finding 9: the per-answer cap is 1,500 characters
+  // (same as MAX_EDIT_LENGTH), so 14 fields can never exceed the
+  // server's 30,000-byte report cap or the 20,000-char email cap.
+  if (t.length > MAX_EDIT_LENGTH)
     return lang === "es"
       ? "Su respuesta excede el límite de caracteres. Por favor, resuma."
       : "Your response exceeds the character limit. Please summarize.";
@@ -99,72 +109,6 @@ function validateInputPreflight(phase: number, text: string, lang: Language): st
       ? "Comparta al menos su nombre para saber cómo llamarle."
       : "Please share at least your first name so we know what to call you.";
   return null;
-}
-
-function buildStructuredDataFallback(answers: Record<string, string>): StructuredData {
-  return {
-    fullName:             answers.fullName             || "",
-    contactInfo:          answers.contactInfo          || "",
-    propertyInterest:     answers.propertyInterest     || "",
-    homeType:             answers.homeType             || "",
-    preferredAreas:       answers.preferredAreas       || "",
-    budgetRange:          answers.budgetRange          || "",
-    moveInTimeline:       answers.moveInTimeline       || "",
-    householdSize:        answers.householdSize        || "",
-    paymentSources:       answers.paymentSources       || "",
-    documentReadiness:    answers.documentReadiness    || "",
-    rentalHistory:        answers.rentalHistory        || "",
-    requirementsAndPets:  answers.requirementsAndPets  || "",
-    moveInReadinessStage: answers.moveInReadinessStage || "",
-    additionalNotes:      answers.additionalNotes      || "",
-    score: 0,
-    statusLabel: "Inquiry Incomplete",
-    statusEmoji: "⚪",
-    recommendedNextStep: "Manual agent review required — automated scoring failed.",
-    submittedAt: new Date().toISOString(),
-  };
-}
-
-function buildFallbackReport(answers: Record<string, string>): string {
-  return [
-    "RRU™ RENTAL INQUIRY BRIEF",
-    `Generated: ${new Date().toLocaleString("en-US", { timeZone: "America/New_York" })} ET`,
-    "",
-    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-    "STATUS: ⚪ MANUAL REVIEW REQUIRED (automated scoring failed)",
-    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-    "",
-    "APPLICANT",
-    `   Name:               ${answers.fullName            || "Not provided"}`,
-    `   Contact:            ${answers.contactInfo         || "Not provided"}`,
-    "",
-    "HOUSING SEARCH",
-    `   Property Interest:  ${answers.propertyInterest    || "Not provided"}`,
-    `   Home Type:          ${answers.homeType            || "Not provided"}`,
-    `   Preferred Areas:    ${answers.preferredAreas      || "Not provided"}`,
-    `   Budget Range:       ${answers.budgetRange         || "Not provided"}`,
-    `   Move-In Timeline:   ${answers.moveInTimeline      || "Not provided"}`,
-    "",
-    "HOUSEHOLD",
-    `   Occupants:          ${answers.householdSize       || "Not provided"}`,
-    "",
-    "FINANCIAL / PAYMENT CONTEXT",
-    `   Payment Sources:    ${answers.paymentSources      || "Not provided"}`,
-    "",
-    "DOCUMENT & RENTAL READINESS",
-    `   Document Readiness: ${answers.documentReadiness   || "Not provided"}`,
-    `   Rental History:     ${answers.rentalHistory       || "Not provided"}`,
-    `   Requirements/Pets:  ${answers.requirementsAndPets || "Not provided"}`,
-    `   Move-In Readiness:  ${answers.moveInReadinessStage|| "Not provided"}`,
-    "",
-    "ADDITIONAL NOTES",
-    `   ${answers.additionalNotes || "None provided."}`,
-    "",
-    "RECOMMENDED NEXT STEP: Manual agent review required (automated scoring failed).",
-    "",
-    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-    "RRU assists with information collection and inquiry organization only.",
-  ].join("\n");
 }
 
 async function fetchWithEvaluateRetry(url: string, options: RequestInit, retries = 1, delay = 2000): Promise<Response> {
@@ -255,7 +199,7 @@ export default function App() {
       const data = await response.json();
       if (data.error) throw new Error(data.error);
 
-      addMessage("model", data.agentResponse || "Could you share a bit more?");
+      addMessage("model", data.agentResponse || (language === "es" ? "¿Podría compartir un poco más?" : "Could you share a bit more?"));
 
       const isValid = toBool(data.isValid);
       const hasExtractedData = typeof data.extractedData === "string" && data.extractedData.trim().length > 0;
@@ -269,10 +213,22 @@ export default function App() {
       const shouldAdvance = toBool(data.advancePhase);
 
       if (isValid && hasExtractedData) {
-        setAnswers((prev) => ({
-          ...prev,
-          [currentQuestion.field]: String(data.extractedData).trim(),
-        }));
+        // Carbon Pass 2, Finding 6: APPEND rather than overwrite when
+        // this field already has an entry (e.g. the Phase 9 subsidy
+        // follow-up). The model is instructed to return a combined
+        // summary, but if it returns only the new fragment, overwriting
+        // would erase the prior answer (e.g. "Housing voucher").
+        setAnswers((prev) => {
+          const existing = (prev[currentQuestion.field] || "").trim();
+          const incoming = String(data.extractedData).trim();
+          const merged =
+            existing.length > 0 &&
+            !incoming.toLowerCase().includes(existing.toLowerCase()) &&
+            !existing.toLowerCase().includes(incoming.toLowerCase())
+              ? `${existing} — ${incoming}`
+              : incoming;
+          return { ...prev, [currentQuestion.field]: merged };
+        });
       }
 
       if (shouldAdvance) {
@@ -322,7 +278,10 @@ export default function App() {
 
   const handleEditAnswer = (field: string, newValue: string) => {
     if (!isFinished && submitStatus !== "submitting") {
-      setAnswers((prev) => ({ ...prev, [field]: newValue }));
+      // Carbon Pass 2, Finding 9: cap review edits at MAX_EDIT_LENGTH
+      // so a pasted block cannot exceed the server's size caps and put
+      // the form into an unsubmittable state.
+      setAnswers((prev) => ({ ...prev, [field]: newValue.slice(0, MAX_EDIT_LENGTH) }));
     }
   };
 
@@ -331,10 +290,15 @@ export default function App() {
 
     const criticalMissing = ALL_FIELDS
       .filter((f) => f.critical && !answers[f.key]?.trim())
-      .map((f) => f.label);
+      .map((f) => f.label[language]);
 
     if (criticalMissing.length > 0) {
-      addMessage("system", `⚠️ Required fields empty: ${criticalMissing.join(", ")}.`);
+      addMessage(
+        "system",
+        language === "es"
+          ? `⚠️ Campos obligatorios vacíos: ${criticalMissing.join(", ")}.`
+          : `⚠️ Required fields empty: ${criticalMissing.join(", ")}.`
+      );
       return;
     }
 
@@ -342,49 +306,53 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      let structuredData: StructuredData;
-      let fullReport: string;
-
-      try {
-        const reportRes = await fetch("/api/generate-report", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ answers }),
-        });
-
-        if (!reportRes.ok) throw new Error(`Report API returned ${reportRes.status}`);
-        const generated = await reportRes.json();
-
-        structuredData = { ...generated.structuredData, submittedAt: new Date().toISOString() };
-        fullReport     = generated.fullReport;
-        setFinalScore(structuredData);
-        setReviewFlags(Array.isArray(generated.reviewFlags) ? generated.reviewFlags : []);
-      } catch {
-        structuredData = buildStructuredDataFallback(answers);
-        fullReport     = buildFallbackReport(answers);
-        setFinalScore(structuredData);
-        setReviewFlags([]);
-      }
-
-      const intakeRes = await fetch("/api/intake", {
-        method:  "POST",
+      // Carbon Pass 2, Finding 2: ONE server-side submission step.
+      // The client sends ONLY the collected answers — the server
+      // generates the brief and emails it (POST /api/submit-inquiry).
+      // The old two-step flow (generate-report, then intake with the
+      // client-built report) let anyone email arbitrary forged content.
+      //
+      // Carbon Pass 2, Finding 10: retry once on a transient 503 so a
+      // capacity blip does not silently downgrade the inquiry to a
+      // 0/100 fallback report — there is no client fallback anymore.
+      const submitRes = await fetchWithEvaluateRetry("/api/submit-inquiry", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ structuredData, fullReport }),
+        body: JSON.stringify({ answers, language }),
       });
 
-      const intakeData = await intakeRes.json();
+      const submitData = await submitRes.json();
 
-      if (intakeRes.ok && intakeData.success) {
+      if (submitRes.ok && submitData.success) {
+        const structuredData: StructuredData = {
+          ...submitData.structuredData,
+          submittedAt: new Date().toISOString(),
+        };
+        setFinalScore(structuredData);
+        setReviewFlags(Array.isArray(submitData.reviewFlags) ? submitData.reviewFlags : []);
         setIsFinished(true);
         setSubmitStatus("success");
-        addMessage("system", "✅ Inquiry successfully submitted to management.");
+        addMessage(
+          "system",
+          language === "es"
+            ? "✅ Consulta enviada correctamente a la gerencia."
+            : "✅ Inquiry successfully submitted to management."
+        );
       } else {
         setSubmitStatus("error");
-        addMessage("system", "❌ Submission failed. Please try again.");
+        addMessage(
+          "system",
+          language === "es"
+            ? "❌ No se pudo enviar. Intente de nuevo."
+            : "❌ Submission failed. Please try again."
+        );
       }
     } catch {
       setSubmitStatus("error");
-      addMessage("system", "❌ A network error occurred.");
+      addMessage(
+        "system",
+        language === "es" ? "❌ Ocurrió un error de red." : "❌ A network error occurred."
+      );
     } finally {
       setIsLoading(false);
     }
@@ -498,7 +466,7 @@ export default function App() {
         {finalScore && (
           <div className="p-4 border-t border-slate-800 bg-slate-900/50 shrink-0">
             <div className="text-[10px] uppercase font-bold text-slate-500 mb-3 tracking-widest">
-              Inquiry Status
+              {language === "es" ? "Estado de la consulta" : "Inquiry Status"}
             </div>
             <div className="flex items-baseline gap-1 mb-1">
               <span className={`text-3xl font-black ${statusColors[finalScore.statusLabel || "Inquiry Incomplete"]}`}>
@@ -509,13 +477,25 @@ export default function App() {
             <div className={`text-xs font-bold uppercase tracking-widest mb-1 ${statusColors[finalScore.statusLabel || "Inquiry Incomplete"]}`}>
               {finalScore.statusEmoji} {finalScore.statusLabel || "Pending"}
             </div>
+            {/* Carbon Pass 2, Finding 11: reviewFlags were stored but
+                never rendered. They are property-specific review routing
+                notes — show them with the status so staff see them. */}
+            {reviewFlags.length > 0 && (
+              <ul className="mt-3 space-y-1.5">
+                {reviewFlags.map((flag, i) => (
+                  <li key={i} className="text-[11px] leading-snug text-sky-300">
+                    🔵 {flag}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 
         {!finalScore && (
           <div className="p-4 border-t border-slate-800 bg-slate-900/50 shrink-0">
             <div className="flex justify-between items-center mb-2">
-              <span className="text-[10px] uppercase font-bold text-slate-600 tracking-widest">Progress</span>
+              <span className="text-[10px] uppercase font-bold text-slate-600 tracking-widest">{language === "es" ? "Progreso" : "Progress"}</span>
               <span className="text-[10px] font-mono text-slate-400">{progressPct}%</span>
             </div>
             <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
@@ -528,6 +508,7 @@ export default function App() {
       <main className="flex-1 flex flex-col relative min-w-0">
         <ChatComponent
           messages={messages}
+          language={language}
           onSendMessage={handleSendMessage}
           onFinish={handleFinishInterview}
           isLoading={isLoading}

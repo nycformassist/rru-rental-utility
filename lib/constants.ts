@@ -33,11 +33,20 @@ function envOrDefault(name: string, fallback: string): string {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
 }
 
-export const MODEL_NAME = envOrDefault("GEMINI_MODEL_NAME", "gemini-2.5-flash");
-export const FALLBACK_MODEL_NAME = envOrDefault(
-  "GEMINI_FALLBACK_MODEL_NAME",
-  "gemini-2.0-flash"
-);
+//
+// Carbon Pass 2, Fix 1: model names are read LAZILY at request time
+// (getModelNames), never as module-level constants. In Node ESM, static
+// imports are evaluated before any top-level code runs, so module-level
+// env reads in server.ts's dependency graph evaluated while process.env
+// was still unpopulated (dotenv.config() had not run yet) — .env values
+// for GEMINI_MODEL_NAME / GEMINI_FALLBACK_MODEL_NAME were silently
+// ignored in local dev.
+export function getModelNames(): { primary: string; fallback: string } {
+  return {
+    primary: envOrDefault("GEMINI_MODEL_NAME", "gemini-2.5-flash"),
+    fallback: envOrDefault("GEMINI_FALLBACK_MODEL_NAME", "gemini-2.0-flash"),
+  };
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // Strict response schema for /api/evaluate
@@ -294,6 +303,7 @@ ACCEPT: Any indication of how they expect to pay rent: employment income, self-e
 REJECT: Only reject a total non-answer.
 PUSHBACK ("I'd rather discuss that with the agent directly."): This is a fully valid answer.
 DYNAMIC FOLLOW-UP TRIGGER: If the client mentions a housing subsidy or rental assistance program, ask ONE neutral follow-up naming the program type if not already given and whether documentation is available.
+FOLLOW-UP COMBINATION RULE (Carbon Pass 2, Finding 6): When resolving a follow-up or updating a field that already has an entry in "Previously Collected" for this phase's field, extractedData MUST combine BOTH the prior answer AND the new follow-up detail into a single complete summary (e.g. "CityFHEPS voucher — approval letter available"), never just the follow-up fragment alone. Returning only the fragment erases the subsidy keyword downstream.
 extractedData: The trimmed payment-source detail exactly as provided.`,
 
   10: `PHASE 10 — DOCUMENT READINESS:
@@ -529,6 +539,11 @@ CONSISTENCY & FOLLOW-UP
 ─────────────────────────────────────────
 - Perform consistency checks against previously collected answers.
 - Trigger dynamic follow-ups for high-value disclosures like housing assistance.
+- When resolving a follow-up for a field that already has an entry in
+  "Previously Collected", extractedData MUST combine the prior answer and
+  the new detail into one complete summary — never just the new fragment.
+  (Carbon Pass 2, Finding 6: returning only the fragment overwrites the
+  prior answer downstream and erases it.)
 - When your evaluation advances to the next phase, agentResponse must
   ONLY acknowledge the current answer — do NOT ask the next phase's
   question. The client UI asks the next question itself; if you ask it
