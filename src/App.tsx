@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChatComponent } from "./ChatComponent";
+import { INTAKE_QUESTIONS } from "../lib/constants";
 
 export type Message = {
   id: string;
@@ -42,41 +43,6 @@ export type StructuredData = {
   submittedAt?: string;
 };
 
-const INTAKE_QUESTIONS: Record<Language, { phase: number; field: string; question: string }[]> = {
-  en: [
-    { phase: 1,  field: "fullName",             question: "Hi! I'll ask a few quick questions to help match you with available rentals. To start — what's your **name**?" },
-    { phase: 2,  field: "contactInfo",          question: "Thanks! What's the best **phone number and/or email** to reach you at?" },
-    { phase: 3,  field: "propertyInterest",     question: "Are you interested in a specific apartment or listing, a few specific ones, or just exploring what's generally available?" },
-    { phase: 4,  field: "homeType",             question: "What are you looking for — a **studio, 1, 2, 3, or 4+ bedroom** apartment, or are you flexible?" },
-    { phase: 5,  field: "preferredAreas",       question: "What **neighborhoods, areas, or zip codes** are you interested in?" },
-    { phase: 6,  field: "budgetRange",          question: "What's your approximate **maximum monthly rent**?" },
-    { phase: 7,  field: "moveInTimeline",       question: "When are you hoping to **move in**? (e.g., immediately, within 30 days, still exploring)" },
-    { phase: 8,  field: "householdSize",        question: "How many people will be **living in the apartment**?" },
-    { phase: 9,  field: "paymentSources",       question: "How do you expect to pay your monthly rent? (e.g., employment income, housing assistance/subsidy, or a combination — whatever applies to you)" },
-    { phase: 10, field: "documentReadiness",    question: "If requested, which documents would you currently be able to provide? (e.g., ID, proof of income, bank statements — or let me know if you're not sure yet)" },
-    { phase: 11, field: "rentalHistory",        question: "Have you **rented before**, and could you provide a previous landlord reference if needed?" },
-    { phase: 12, field: "requirementsAndPets",  question: "Do you have any **pets**, or any important requirements like parking, laundry, elevator access, or outdoor space?" },
-    { phase: 13, field: "moveInReadinessStage", question: "Where are you in your search — just starting, actively searching, ready to apply, or need to move urgently? Have you already viewed apartments, or are you working with another agent?" },
-    { phase: 14, field: "additionalNotes",      question: "Last thing — is there **anything else** you'd like the agent to know about your housing search?" },
-  ],
-  es: [
-    { phase: 1,  field: "fullName",             question: "¡Hola! Haré algunas preguntas rápidas para ayudarle a encontrar alquileres disponibles. Para empezar, ¿cuál es su **nombre**?" },
-    { phase: 2,  field: "contactInfo",          question: "¡Gracias! ¿Cuál es el mejor **número de teléfono y/o correo electrónico** para comunicarnos con usted?" },
-    { phase: 3,  field: "propertyInterest",     question: "¿Le interesa un apartamento o anuncio específico, varios específicos, o solo explorar lo que hay disponible en general?" },
-    { phase: 4,  field: "homeType",             question: "¿Qué busca — un apartamento de **estudio, 1, 2, 3 o 4+ habitaciones**, o es flexible?" },
-    { phase: 5,  field: "preferredAreas",       question: "¿Qué **vecindarios, áreas o códigos postales** le interesan?" },
-    { phase: 6,  field: "budgetRange",          question: "¿Cuál es su **alquiler mensual máximo** aproximado?" },
-    { phase: 7,  field: "moveInTimeline",       question: "¿Cuándo espera **mudarse**? (ej., inmediatamente, dentro de 30 días, aún explorando)" },
-    { phase: 8,  field: "householdSize",        question: "¿Cuántas personas **vivirán en el apartamento**?" },
-    { phase: 9,  field: "paymentSources",       question: "¿Cómo espera pagar su alquiler mensual? (ej., ingresos de empleo, asistencia/subsidio de vivienda, o una combinación — lo que aplique)" },
-    { phase: 10, field: "documentReadiness",    question: "Si se le solicita, ¿qué documentos podría proporcionar actualmente? (ej., identificación, comprobante de ingresos, estados de cuenta — o avíseme si no está seguro)" },
-    { phase: 11, field: "rentalHistory",        question: "¿Ha **alquilado antes** y podría proporcionar una referencia de un propietario anterior si es necesario?" },
-    { phase: 12, field: "requirementsAndPets",  question: "¿Tiene **mascotas** o algún requisito importante como estacionamiento, lavandería, ascensor o espacio al aire libre?" },
-    { phase: 13, field: "moveInReadinessStage", question: "¿En qué etapa está de su búsqueda — empezando, buscando activamente, listo para aplicar, o necesita mudarse con urgencia? ¿Ha visto apartamentos o trabaja con otro agente?" },
-    { phase: 14, field: "additionalNotes",      question: "Última pregunta — ¿hay **algo más** que le gustaría que el agente sepa sobre su búsqueda de vivienda?" },
-  ]
-};
-
 const ROADMAP_TITLES: Record<Language, string[]> = {
   en: ["Name", "Contact", "Property", "Home Type", "Areas", "Budget", "Timeline", "Household", "Payment", "Documents", "Rental History", "Requirements", "Readiness", "Anything Else"],
   es: ["Nombre", "Contacto", "Propiedad", "Tipo", "Áreas", "Presupuesto", "Plazo", "Hogar", "Pago", "Documentos", "Historial", "Requisitos", "Disponibilidad", "Otros Detalles"]
@@ -105,18 +71,33 @@ function toBool(value: unknown): boolean {
   return Boolean(value);
 }
 
-function validateInputPreflight(phase: number, text: string): string | null {
+// Carbon Pass 1, finding #11: length limits are ALWAYS enforced
+// (localized), regardless of preflightFailCount — the previous code
+// skipped ALL validation after 2 failures, including the empty and
+// oversized checks. The Phase 2 contact-format check is REMOVED from
+// preflight: it blocked the LLM's designed Phase 2 pushback script
+// (PHASE_RULES[2]) — the model handles a reluctant contact answer
+// itself. Phase-specific format checks that remain are still subject
+// to the bypass threshold.
+function validateInputLength(text: string, lang: Language): string | null {
   const t = text.trim();
-  if (t.length === 0) return "A response is required before continuing.";
-  if (t.length > 4000) return "Your response exceeds the character limit. Please summarize.";
-  if (phase === 1 && t.length < 2) return "Please share at least your first name so we know what to call you.";
-  if (phase === 2) {
-    const hasEmail = /[^\s@]+@[^\s@]+\.[^\s@]+/.test(t);
-    const digitCount = (t.match(/\d/g) || []).length;
-    if (!hasEmail && digitCount < 7) {
-      return "Please provide a valid phone number (at least 7 digits) or a valid email address.";
-    }
-  }
+  if (t.length === 0)
+    return lang === "es"
+      ? "Se requiere una respuesta para continuar."
+      : "A response is required before continuing.";
+  if (t.length > 4000)
+    return lang === "es"
+      ? "Su respuesta excede el límite de caracteres. Por favor, resuma."
+      : "Your response exceeds the character limit. Please summarize.";
+  return null;
+}
+
+function validateInputPreflight(phase: number, text: string, lang: Language): string | null {
+  const t = text.trim();
+  if (phase === 1 && t.length < 2)
+    return lang === "es"
+      ? "Comparta al menos su nombre para saber cómo llamarle."
+      : "Please share at least your first name so we know what to call you.";
   return null;
 }
 
@@ -241,7 +222,13 @@ export default function App() {
     const currentQuestion = questionsList[currentPhase - 1];
     addMessage("user", text);
 
-    const preflightError = validateInputPreflight(currentPhase, text);
+    const lengthError = validateInputLength(text, language);
+    if (lengthError) {
+      addMessage("model", lengthError);
+      return;
+    }
+
+    const preflightError = validateInputPreflight(currentPhase, text, language);
     if (preflightError && preflightFailCount < PREFLIGHT_BYPASS_THRESHOLD) {
       setPreflightFailCount((n) => n + 1);
       addMessage("model", preflightError);
@@ -272,12 +259,14 @@ export default function App() {
 
       const isValid = toBool(data.isValid);
       const hasExtractedData = typeof data.extractedData === "string" && data.extractedData.trim().length > 0;
-      const inconsistencyDetected = toBool(data.inconsistencyDetected);
-      const followUpTriggered = toBool(data.followUpTriggered);
 
-      const shouldAdvance =
-        toBool(data.advancePhase) ||
-        (isValid && hasExtractedData && !inconsistencyDetected && !followUpTriggered);
+      // Carbon Pass 1, finding #6: trust the server's advancePhase
+      // directly. The server computes it from the validated fields
+      // (isValid && hasExtractedData && no inconsistency / follow-up);
+      // the previous client-side `||` formula re-introduced the model's
+      // own value and could advance past a pending follow-up, past an
+      // inconsistency, or with no extracted data at all.
+      const shouldAdvance = toBool(data.advancePhase);
 
       if (isValid && hasExtractedData) {
         setAnswers((prev) => ({
@@ -292,23 +281,23 @@ export default function App() {
 
         if (nextPhase <= questionsList.length) {
           setCurrentPhase(nextPhase);
-          const agentAlreadyAskedSomething = /\?\s*$/.test(String(data.agentResponse || "").trim());
-          if (!agentAlreadyAskedSomething) {
-            const nextQuestion = questionsList[nextPhase - 1];
-            const priorContextNote =
-              typeof data.priorContextNote === "string" && data.priorContextNote.trim().length > 0
-                ? data.priorContextNote.trim()
-                : null;
-            const nextMessageText = priorContextNote
-              ? `${priorContextNote} ${nextQuestion.question}`
-              : nextQuestion.question;
-            setLastAssistantMessage(nextMessageText);
-            setTimeout(() => {
-              addMessage("model", nextMessageText);
-            }, 450);
-          } else {
-            setLastAssistantMessage(String(data.agentResponse));
-          }
+          // Carbon Pass 1, finding #7: ALWAYS emit the next question
+          // when advancing. The previous trailing-"?" check suppressed
+          // it whenever the model's acknowledgment ended in a question
+          // mark, leaving the user answering one question while the
+          // state machine validated it for a different field.
+          const nextQuestion = questionsList[nextPhase - 1];
+          const priorContextNote =
+            typeof data.priorContextNote === "string" && data.priorContextNote.trim().length > 0
+              ? data.priorContextNote.trim()
+              : null;
+          const nextMessageText = priorContextNote
+            ? `${priorContextNote} ${nextQuestion.question}`
+            : nextQuestion.question;
+          setLastAssistantMessage(nextMessageText);
+          setTimeout(() => {
+            addMessage("model", nextMessageText);
+          }, 450);
         } else {
           setCurrentPhase(questionsList.length + 1);
           setTimeout(() => {

@@ -17,11 +17,19 @@ import {
   CATEGORY_WEIGHTS,
   ScoreCategory,
   SCORE_CATEGORY_KEYS,
+  REPORT_RESPONSE_SCHEMA,
   buildReportSystemInstruction,
   inquiryStatus,
   buildFullRentalReport,
 } from "../lib/constants.js";
 import { generateJSON, UpstreamUnavailableError } from "../lib/gemini-client.js";
+import { checkRateLimit, getClientIp } from "../lib/rate-limit.js";
+
+// Carbon Pass 1, finding #5: unauthenticated AI endpoints had no rate
+// limiting and no body-size caps, so scripts could drain Gemini quota.
+const RATE_LIMIT = 20; // requests per IP per window
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_ANSWERS_JSON_LENGTH = 30000;
 
 const CATEGORY_SCORE_FIELD: Record<ScoreCategory, string> = {
   contactComplete: "scoreContactComplete",
@@ -92,12 +100,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
+  // Carbon Pass 1, finding #5: enforce a body-size cap so an oversized
+  // intake payload cannot drain quota.
+  if (JSON.stringify(answers).length > MAX_ANSWERS_JSON_LENGTH) {
+    res.status(400).json({ error: "Answers payload exceeds the size limit." });
+    return;
+  }
+
+  if (!checkRateLimit(`generate-report:${getClientIp(req)}`, RATE_LIMIT, RATE_LIMIT_WINDOW_MS)) {
+    res.status(429).json({ error: "Too many requests — please try again shortly.", retryable: true });
+    return;
+  }
+
   const systemInstruction = buildReportSystemInstruction();
   const prompt = `Generate the Rental Inquiry Brief from this intake data:\n\n${JSON.stringify(answers, null, 2)}\n\nPopulate categoryEvidence for every category BEFORE writing any numeric score. Apply all scoring rules strictly, including the housing-assistance-is-not-negative rule. Verify your arithmetic before returning. The "score" field must equal the exact sum of the 7 category scores. Return the JSON object.`;
 
   let parsed: Record<string, unknown>;
   try {
-    const responseText = await generateJSON(systemInstruction, prompt);
+    // Carbon Pass 1, finding #3: pass the strict report response schema
+    // so the model is constrained to the exact field types (same as
+    // /api/evaluate already does with EVALUATE_RESPONSE_SCHEMA).
+    const responseText = await generateJSON(systemInstruction, prompt, REPORT_RESPONSE_SCHEMA);
     try {
       parsed = JSON.parse(responseText);
     } catch {
@@ -116,7 +139,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const message = err instanceof Error ? err.message : String(err);
     console.error("[api/generate-report] Report generation error:", message);
-    res.status(500).json({ error: "Failed to generate report", detail: message });
+    // Carbon Pass 1, finding #5: never return raw internal exception
+    // strings to clients — they leak implementation details.
+    res.status(500).json({ error: "Failed to generate report" });
     return;
   }
 
@@ -158,6 +183,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   //    floor rather than trust a possibly-biased model score. This is the
   //    hard enforcement layer behind FAIR_HOUSING_HARD_RULES rule #2 —
   //    the prompt asks for this, this code guarantees it.
+  //
+  //    Carbon Pass 1, finding #8: the paymentDocumentationContext floor
+  //    must NOT apply when no documentation context was actually
+  //    provided. Rule #2 says subsidy income is scored EQUIVALENTLY to
+  //    employment income — not automatically awarded 85% on documentation
+  //    context when the applicant left Phase 10 blank or gave no
+  //    voucher/program details. The financialInformationProvided floor
+  //    still applies on a subsidy mention (that IS the stated income);
+  //    the documentation-context floor applies only when documentation
+  //    context was actually provided.
   const paymentSourcesText = String(answers.paymentSources || "");
   if (HOUSING_ASSISTANCE_KEYWORDS.test(paymentSourcesText)) {
     const FLOOR_FRACTION = 0.85; // "complete information" floor, matching the rubric's top band threshold
@@ -168,7 +203,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       categoryScores.financialInformationProvided = financialFloor;
       sd.scoreFinancialInformationProvided = financialFloor;
     }
-    if (categoryScores.paymentDocumentationContext < paymentFloor) {
+    const docEvidence = evidence.paymentDocumentationContext;
+    const hasDocEvidence = typeof docEvidence === "string" && docEvidence.trim().length > 0;
+    const docReadiness = String(answers.documentReadiness || "").trim().toLowerCase();
+    const hasDocContext =
+      hasDocEvidence || (docReadiness.length > 0 && docReadiness !== "not provided");
+    if (hasDocContext && categoryScores.paymentDocumentationContext < paymentFloor) {
       console.warn("[api/generate-report] Fair-housing floor applied to paymentDocumentationContext.");
       categoryScores.paymentDocumentationContext = paymentFloor;
       sd.scorePaymentDocumentationContext = paymentFloor;

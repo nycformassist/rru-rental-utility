@@ -97,8 +97,13 @@ export function ChatComponent({
     critical: ["fullName", "contactInfo"].includes(q.field),
   }));
 
+  // Carbon Pass 1, finding #9: only CRITICAL fields gate submission.
+  // The previous version counted every empty field, so clearing a
+  // non-critical field (e.g. "Additional Notes") permanently disabled
+  // Submit with no explanation — while handleFinishInterview only ever
+  // required the critical ones.
   const emptyCount = answers
-    ? reviewFields.filter((f) => !answers[f.key]?.trim()).length
+    ? reviewFields.filter((f) => f.critical && !answers[f.key]?.trim()).length
     : 0;
 
   return (
@@ -279,7 +284,11 @@ export function ChatComponent({
               <button
                 type="button"
                 onClick={onFinish}
-                disabled={isLoading || isFinished || submitStatus === "submitting" || emptyCount > 0}
+                // Carbon Pass 1, finding #10: also disable while a review
+                // field is being edited — otherwise clicking Submit in the
+                // same cycle as the edit's onBlur submits the STALE
+                // answers object and the final edit is silently omitted.
+                disabled={isLoading || isFinished || submitStatus === "submitting" || emptyCount > 0 || editingField !== null}
                 className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg uppercase tracking-widest disabled:opacity-50 transition-colors shadow-sm whitespace-nowrap"
               >
                 {isFinished ? "✅ Submitted" : "Submit Inquiry →"}

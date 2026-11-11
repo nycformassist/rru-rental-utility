@@ -12,9 +12,32 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Model config
 // ─────────────────────────────────────────────────────────────────────────
+//
+// The client (lib/gemini-client.ts) talks to the Gemini Developer API
+// (AI Studio) via an API key — NOT Vertex AI. Model IDs here must exist
+// on the Gemini Developer API. They can be overridden per environment:
+//   GEMINI_MODEL_NAME / GEMINI_FALLBACK_MODEL_NAME
+// (Carbon Pass 1, finding #1: the previous hard-coded IDs
+// "gemini-3.8-flash" / "gemini-3.7-flash" are not valid on this API, and
+// a 404 from the primary model threw immediately instead of failing over.)
+//
+// NOTE: this module is also imported by the client bundle (src/App.tsx
+// imports INTAKE_QUESTIONS from here), where `process` does not exist —
+// so env access goes through globalThis with a safe fallback.
 
-export const MODEL_NAME = "gemini-3.8-flash";
-export const FALLBACK_MODEL_NAME = "gemini-3.7-flash";
+function envOrDefault(name: string, fallback: string): string {
+  const proc = (globalThis as Record<string, unknown>).process as
+    | { env?: Record<string, string | undefined> }
+    | undefined;
+  const value = proc?.env?.[name];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
+}
+
+export const MODEL_NAME = envOrDefault("GEMINI_MODEL_NAME", "gemini-2.5-flash");
+export const FALLBACK_MODEL_NAME = envOrDefault(
+  "GEMINI_FALLBACK_MODEL_NAME",
+  "gemini-2.0-flash"
+);
 
 // ─────────────────────────────────────────────────────────────────────────
 // Strict response schema for /api/evaluate
@@ -40,6 +63,104 @@ export const EVALUATE_RESPONSE_SCHEMA = {
     "followUpTriggered",
     "priorContextNote",
   ],
+} as const;
+
+// ─────────────────────────────────────────────────────────────────────────
+// Strict response schema for /api/generate-report
+// (Carbon Pass 1, finding #3: the report call previously passed no
+// responseSchema, so the model could return wrong field types or omit
+// fields. The category score fields are numbers on each category's own
+// 0-to-MAX scale — see CATEGORY_WEIGHTS / SCORING_RUBRIC.)
+// ─────────────────────────────────────────────────────────────────────────
+
+export const REPORT_RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    structuredData: {
+      type: "OBJECT",
+      properties: {
+        fullName: { type: "STRING" },
+        contactInfo: { type: "STRING" },
+        propertyInterest: { type: "STRING" },
+        homeType: { type: "STRING" },
+        preferredAreas: { type: "STRING" },
+        budgetRange: { type: "STRING" },
+        moveInTimeline: { type: "STRING" },
+        householdSize: { type: "STRING" },
+        paymentSources: { type: "STRING" },
+        documentReadiness: { type: "STRING" },
+        rentalHistory: { type: "STRING" },
+        requirementsAndPets: { type: "STRING" },
+        moveInReadinessStage: { type: "STRING" },
+        additionalNotes: { type: "STRING" },
+        categoryEvidence: {
+          type: "OBJECT",
+          properties: {
+            contactComplete: { type: "STRING" },
+            housingRequirementsClear: { type: "STRING" },
+            moveInTimelineClear: { type: "STRING" },
+            financialInformationProvided: { type: "STRING" },
+            paymentDocumentationContext: { type: "STRING" },
+            documentReadiness: { type: "STRING" },
+            propertyMatchInformation: { type: "STRING" },
+          },
+          required: [
+            "contactComplete",
+            "housingRequirementsClear",
+            "moveInTimelineClear",
+            "financialInformationProvided",
+            "paymentDocumentationContext",
+            "documentReadiness",
+            "propertyMatchInformation",
+          ],
+        },
+        scoreContactComplete: { type: "NUMBER" },
+        scoreHousingRequirementsClear: { type: "NUMBER" },
+        scoreMoveInTimelineClear: { type: "NUMBER" },
+        scoreFinancialInformationProvided: { type: "NUMBER" },
+        scorePaymentDocumentationContext: { type: "NUMBER" },
+        scoreDocumentReadiness: { type: "NUMBER" },
+        scorePropertyMatchInformation: { type: "NUMBER" },
+        score: { type: "NUMBER" },
+        statusLabel: {
+          type: "STRING",
+          enum: ["Ready for Agent Review", "Additional Information Needed", "Inquiry Incomplete"],
+        },
+        statusEmoji: { type: "STRING", enum: ["🟢", "🟡", "⚪"] },
+        recommendedNextStep: { type: "STRING" },
+      },
+      required: [
+        "fullName",
+        "contactInfo",
+        "propertyInterest",
+        "homeType",
+        "preferredAreas",
+        "budgetRange",
+        "moveInTimeline",
+        "householdSize",
+        "paymentSources",
+        "documentReadiness",
+        "rentalHistory",
+        "requirementsAndPets",
+        "moveInReadinessStage",
+        "additionalNotes",
+        "categoryEvidence",
+        "scoreContactComplete",
+        "scoreHousingRequirementsClear",
+        "scoreMoveInTimelineClear",
+        "scoreFinancialInformationProvided",
+        "scorePaymentDocumentationContext",
+        "scoreDocumentReadiness",
+        "scorePropertyMatchInformation",
+        "score",
+        "statusLabel",
+        "statusEmoji",
+        "recommendedNextStep",
+      ],
+    },
+    keyFindings: { type: "STRING" },
+  },
+  required: ["structuredData", "keyFindings"],
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -202,6 +323,51 @@ extractedData: The trimmed response.`,
 };
 
 // ─────────────────────────────────────────────────────────────────────────
+// Intake questions — the canonical question text per phase, per language.
+// Single source of truth: src/App.tsx renders these, and api/evaluate.ts
+// looks the canonical question up server-side instead of trusting the
+// client-supplied `question` field (Carbon Pass 1, finding #5 — the
+// client-supplied question was a prompt-injection vector).
+// ─────────────────────────────────────────────────────────────────────────
+
+export type IntakeLanguage = "en" | "es";
+
+export const INTAKE_QUESTIONS: Record<IntakeLanguage, { phase: number; field: string; question: string }[]> = {
+  en: [
+    { phase: 1,  field: "fullName",             question: "Hi! I'll ask a few quick questions to help match you with available rentals. To start — what's your **name**?" },
+    { phase: 2,  field: "contactInfo",          question: "Thanks! What's the best **phone number and/or email** to reach you at?" },
+    { phase: 3,  field: "propertyInterest",     question: "Are you interested in a specific apartment or listing, a few specific ones, or just exploring what's generally available?" },
+    { phase: 4,  field: "homeType",             question: "What are you looking for — a **studio, 1, 2, 3, or 4+ bedroom** apartment, or are you flexible?" },
+    { phase: 5,  field: "preferredAreas",       question: "What **neighborhoods, areas, or zip codes** are you interested in?" },
+    { phase: 6,  field: "budgetRange",          question: "What's your approximate **maximum monthly rent**?" },
+    { phase: 7,  field: "moveInTimeline",       question: "When are you hoping to **move in**? (e.g., immediately, within 30 days, still exploring)" },
+    { phase: 8,  field: "householdSize",        question: "How many people will be **living in the apartment**?" },
+    { phase: 9,  field: "paymentSources",       question: "How do you expect to pay your monthly rent? (e.g., employment income, housing assistance/subsidy, or a combination — whatever applies to you)" },
+    { phase: 10, field: "documentReadiness",    question: "If requested, which documents would you currently be able to provide? (e.g., ID, proof of income, bank statements — or let me know if you're not sure yet)" },
+    { phase: 11, field: "rentalHistory",        question: "Have you **rented before**, and could you provide a previous landlord reference if needed?" },
+    { phase: 12, field: "requirementsAndPets",  question: "Do you have any **pets**, or any important requirements like parking, laundry, elevator access, or outdoor space?" },
+    { phase: 13, field: "moveInReadinessStage", question: "Where are you in your search — just starting, actively searching, ready to apply, or need to move urgently? Have you already viewed apartments, or are you working with another agent?" },
+    { phase: 14, field: "additionalNotes",      question: "Last thing — is there **anything else** you'd like the agent to know about your housing search?" },
+  ],
+  es: [
+    { phase: 1,  field: "fullName",             question: "¡Hola! Haré algunas preguntas rápidas para ayudarle a encontrar alquileres disponibles. Para empezar, ¿cuál es su **nombre**?" },
+    { phase: 2,  field: "contactInfo",          question: "¡Gracias! ¿Cuál es el mejor **número de teléfono y/o correo electrónico** para comunicarnos con usted?" },
+    { phase: 3,  field: "propertyInterest",     question: "¿Le interesa un apartamento o anuncio específico, varios específicos, o solo explorar lo que hay disponible en general?" },
+    { phase: 4,  field: "homeType",             question: "¿Qué busca — un apartamento de **estudio, 1, 2, 3 o 4+ habitaciones**, o es flexible?" },
+    { phase: 5,  field: "preferredAreas",       question: "¿Qué **vecindarios, áreas o códigos postales** le interesan?" },
+    { phase: 6,  field: "budgetRange",          question: "¿Cuál es su **alquiler mensual máximo** aproximado?" },
+    { phase: 7,  field: "moveInTimeline",       question: "¿Cuándo espera **mudarse**? (ej., inmediatamente, dentro de 30 días, aún explorando)" },
+    { phase: 8,  field: "householdSize",        question: "¿Cuántas personas **vivirán en el apartamento**?" },
+    { phase: 9,  field: "paymentSources",       question: "¿Cómo espera pagar su alquiler mensual? (ej., ingresos de empleo, asistencia/subsidio de vivienda, o una combinación — lo que aplique)" },
+    { phase: 10, field: "documentReadiness",    question: "Si se le solicita, ¿qué documentos podría proporcionar actualmente? (ej., identificación, comprobante de ingresos, estados de cuenta — o avíseme si no está seguro)" },
+    { phase: 11, field: "rentalHistory",        question: "¿Ha **alquilado antes** y podría proporcionar una referencia de un propietario anterior si es necesario?" },
+    { phase: 12, field: "requirementsAndPets",  question: "¿Tiene **mascotas** o algún requisito importante como estacionamiento, lavandería, ascensor o espacio al aire libre?" },
+    { phase: 13, field: "moveInReadinessStage", question: "¿En qué etapa está de su búsqueda — empezando, buscando activamente, listo para aplicar, o necesita mudarse con urgencia? ¿Ha visto apartamentos o trabaja con otro agente?" },
+    { phase: 14, field: "additionalNotes",      question: "Última pregunta — ¿hay **algo más** que le gustaría que el agente sepa sobre su búsqueda de vivienda?" },
+  ]
+};
+
+// ─────────────────────────────────────────────────────────────────────────
 // Scoring rubric
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -221,6 +387,24 @@ export const SCORE_CATEGORY_KEYS = Object.keys(CATEGORY_WEIGHTS) as ScoreCategor
 export const SCORING_RUBRIC = `
 INQUIRY READINESS SCORE — WEIGHTED 100-POINT MODEL
 This score measures completeness and operational readiness for agent follow-up. It does not measure tenant desirability or eligibility.
+The 7 category scores below MUST sum exactly to the "score" field (0–100).
+Each category is scored ONLY on the 0-to-MAX scale shown — never on a 0–100
+scale per category, never on a 0–5 scale. A category with no supporting
+evidence in the intake data scores 0 for that category.
+
+CATEGORY SCALES (max points — these are the ONLY valid ceilings):
+- contactComplete (MAX 10): 10 = name AND a reachable phone/email both provided; 5 = only one of name/contact provided; 0 = neither usable.
+- housingRequirementsClear (MAX 15): 15 = property interest, home type, and preferred areas all clearly stated; 8 = two of the three stated; 0 = none stated.
+- moveInTimelineClear (MAX 15): 15 = a specific timeline stated; 8 = a vague timeline ("exploring", "flexible"); 0 = no timeline.
+- financialInformationProvided (MAX 15): 15 = a payment source clearly stated (employment income, lawful subsidy, or other lawful income — a lawful subsidy scores exactly as employment income); 8 = payment source mentioned but vague; 0 = no payment information.
+- paymentDocumentationContext (MAX 15): 15 = program/documentation context provided (subsidy program named, documentation availability stated); 8 = payment source stated but no documentation context; 0 = no documentation context at all.
+- documentReadiness (MAX 15): 15 = specific documents listed as available; 8 = "not sure what is required" or a partial list; 0 = no document information.
+- propertyMatchInformation (MAX 15): 15 = budget, household size, rental history, and requirements/pets all stated; 8 = two or three of the four stated; 0 = fewer than two stated.
+
+SCORING BANDS (per category, as a fraction of its MAX):
+- Full (MAX): the information is complete and specific.
+- Partial (about half of MAX, rounded): the information is present but vague or incomplete.
+- Zero (0): the information is absent — never guess, never infer.
 `;
 
 export function inquiryStatus(score: number): {
@@ -345,6 +529,11 @@ CONSISTENCY & FOLLOW-UP
 ─────────────────────────────────────────
 - Perform consistency checks against previously collected answers.
 - Trigger dynamic follow-ups for high-value disclosures like housing assistance.
+- When your evaluation advances to the next phase, agentResponse must
+  ONLY acknowledge the current answer — do NOT ask the next phase's
+  question. The client UI asks the next question itself; if you ask it
+  too, the question is shown twice and the phases desynchronize.
+  (Carbon Pass 1, finding #7.)
 ${crossPhaseSection}
 
 ─────────────────────────────────────────

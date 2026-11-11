@@ -13,6 +13,13 @@
  *      model from a different generation.
  *   3. If both are exhausted, throw UpstreamUnavailableError so the
  *      handler can return HTTP 503 (retry-worthy) instead of a generic 500.
+ *
+ * A 404 (NOT_FOUND — e.g. a model ID that does not exist on the Gemini
+ * Developer API) is NOT retried, but it DOES trigger the one-time
+ * fallback: a bad primary model ID must not take the whole endpoint down
+ * (Carbon Pass 1, finding #1). If the fallback also 404s, that is a
+ * configuration error and is thrown as-is (HTTP 500), not masked as a
+ * capacity problem.
  */
 
 import { GoogleGenAI } from "@google/genai";
@@ -39,6 +46,11 @@ export class UpstreamUnavailableError extends Error {
 }
 
 const RETRYABLE_STATUS_CODES = [429, 503];
+// Statuses that trigger the one-time fallback to the secondary model.
+// 404 is included: a model ID that does not exist on the API must fall
+// back instead of failing the request outright. 404 is deliberately NOT
+// in RETRYABLE_STATUS_CODES — retrying a bad model ID can never succeed.
+const FAILOVER_STATUS_CODES = [404, 429, 503];
 const MAX_ATTEMPTS_PER_MODEL = 3;
 const BASE_DELAY_MS = 800;
 
@@ -112,7 +124,7 @@ async function callModelWithRetry(
  * where booleans are expected, no missing required fields.
  */
 export async function generateJSON(systemInstruction: string, prompt: string, responseSchema?: object): Promise<string> {
-  // Ensure we use the current stable model constants (e.g. gemini-3.8-flash)
+  // Model IDs come from lib/constants.ts (env-overridable, valid defaults).
   const primaryModel = MODEL_NAME;
   const fallbackModel = FALLBACK_MODEL_NAME;
 
@@ -121,13 +133,14 @@ export async function generateJSON(systemInstruction: string, prompt: string, re
     return (response.text || "{}").trim();
   } catch (primaryErr) {
     const status = extractStatusCode(primaryErr);
-    if (status === null || !RETRYABLE_STATUS_CODES.includes(status)) {
-      // Not a capacity issue (bad request, auth failure, 404, etc.) — don't
-      // mask it by trying a second model, just surface it.
+    if (status === null || !FAILOVER_STATUS_CODES.includes(status)) {
+      // Not a capacity issue and not a missing model (bad request, auth
+      // failure, etc.) — don't mask it by trying a second model, just
+      // surface it.
       throw primaryErr;
     }
 
-    console.warn(`[gemini-client] ${primaryModel} exhausted retries — falling back to ${fallbackModel}.`);
+    console.warn(`[gemini-client] ${primaryModel} failed (status ${status}) — falling back to ${fallbackModel}.`);
     try {
       const response = await callModelWithRetry(fallbackModel, systemInstruction, prompt, responseSchema);
       return (response.text || "{}").trim();
@@ -138,6 +151,8 @@ export async function generateJSON(systemInstruction: string, prompt: string, re
           `Both ${primaryModel} and ${fallbackModel} are currently unavailable (Google capacity issue). Please try again shortly.`
         );
       }
+      // Fallback 404 (or any other non-capacity error): a configuration
+      // problem, not a capacity problem — surface it, don't mask as 503.
       throw fallbackErr;
     }
   }

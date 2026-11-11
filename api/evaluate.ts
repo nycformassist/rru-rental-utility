@@ -9,8 +9,20 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { buildEvaluateSystemInstruction, EVALUATE_RESPONSE_SCHEMA } from "../lib/constants.js";
+import {
+  buildEvaluateSystemInstruction,
+  EVALUATE_RESPONSE_SCHEMA,
+  INTAKE_QUESTIONS,
+} from "../lib/constants.js";
 import { generateJSON, UpstreamUnavailableError } from "../lib/gemini-client.js";
+import { checkRateLimit, getClientIp } from "../lib/rate-limit.js";
+
+// Carbon Pass 1, finding #5: unauthenticated AI endpoints had no rate
+// limiting and no body-size caps, so scripts could drain Gemini quota.
+const RATE_LIMIT = 20; // requests per IP per window
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_ANSWER_LENGTH = 4000;
+const MAX_ALL_ANSWERS_JSON_LENGTH = 30000;
 
 interface EvaluateRequestBody {
   phase: number | string;
@@ -52,8 +64,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { phase, question, answer, allAnswers, language } = (req.body || {}) as EvaluateRequestBody;
 
-  if (!phase || !question || answer === undefined || answer === null) {
-    res.status(400).json({ error: "Missing required fields: phase, question, answer" });
+  // `question` is accepted for backward compatibility but NEVER trusted:
+  // the canonical question is looked up server-side from
+  // INTAKE_QUESTIONS (Carbon Pass 1, finding #5 — the client-supplied
+  // question was a prompt-injection vector).
+  void question;
+
+  if (!phase || answer === undefined || answer === null) {
+    res.status(400).json({ error: "Missing required fields: phase, answer" });
+    return;
+  }
+
+  // Carbon Pass 1, finding #5: enforce body-size caps so oversized
+  // payloads cannot drain quota or smuggle prompt content.
+  const answerText = String(answer).trim();
+  if (answerText.length > MAX_ANSWER_LENGTH) {
+    res.status(400).json({ error: "Answer exceeds the 4000-character limit." });
+    return;
+  }
+  if (allAnswers !== undefined && JSON.stringify(allAnswers).length > MAX_ALL_ANSWERS_JSON_LENGTH) {
+    res.status(400).json({ error: "Collected answers payload exceeds the size limit." });
+    return;
+  }
+
+  if (!checkRateLimit(`evaluate:${getClientIp(req)}`, RATE_LIMIT, RATE_LIMIT_WINDOW_MS)) {
+    res.status(429).json({ error: "Too many requests — please try again shortly.", retryable: true });
     return;
   }
 
@@ -64,6 +99,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const lang = language === "es" ? "es" : "en";
+  const canonicalQuestion = INTAKE_QUESTIONS[lang][phaseNum - 1].question;
   const systemInstruction = buildEvaluateSystemInstruction(phaseNum, lang);
 
   const currentDate = new Date().toLocaleDateString("en-US", {
@@ -77,8 +113,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 Language preference: ${lang === "es" ? "Spanish (Español)" : "English"}
 
 Phase: ${phaseNum}
-Question: "${question}"
-Client Answer: "${String(answer).trim()}"
+Question: "${canonicalQuestion}"
+Client Answer: "${answerText}"
 Previously Collected: ${JSON.stringify(allAnswers || {})}
 
 Evaluate against the Phase ${phaseNum} rule, run the consistency check against Previously Collected, and run the dynamic follow-up check. Return your JSON response.`;
@@ -100,11 +136,14 @@ Evaluate against the Phase ${phaseNum} rule, run the consistency check against P
     const hasExtractedData = extractedData.length > 0;
     const inconsistencyDetected = toBool(parsed.inconsistencyDetected);
     const followUpTriggered = toBool(parsed.followUpTriggered);
-    const modelAdvancePhase = toBool(parsed.advancePhase);
 
+    // Carbon Pass 1, finding #6: advancePhase is computed ONLY from the
+    // validated fields. The model's own advancePhase value is NOT trusted
+    // — the previous `modelAdvancePhase || (...)` formula advanced the
+    // phase even when a follow-up was pending, an inconsistency was
+    // detected, or no data was extracted.
     const advancePhase =
-      modelAdvancePhase ||
-      (isValid && hasExtractedData && !inconsistencyDetected && !followUpTriggered);
+      isValid && hasExtractedData && !inconsistencyDetected && !followUpTriggered;
 
     const result: EvaluateResult = {
       isValid,
@@ -134,6 +173,8 @@ Evaluate against the Phase ${phaseNum} rule, run the consistency check against P
     }
     const message = err instanceof Error ? err.message : String(err);
     console.error("[api/evaluate] Evaluation error:", message);
-    res.status(500).json({ error: "Failed to evaluate input", detail: message });
+    // Carbon Pass 1, finding #5: never return raw internal exception
+    // strings to clients — they leak implementation details.
+    res.status(500).json({ error: "Failed to evaluate input" });
   }
 }
