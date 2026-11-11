@@ -25,6 +25,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { generateRentalReport, UpstreamUnavailableError } from "../lib/report.js";
 import { sendInquiryEmail } from "../lib/email.js";
 import { checkRateLimit, getClientIp } from "../lib/rate-limit.js";
+import { submissionHash, getCachedSubmission, cacheSubmission } from "../lib/idempotency.js";
 
 // Email is the most abuse-prone endpoint, so it gets the strictest rate
 // limit (Carbon Pass 1, finding #5).
@@ -51,7 +52,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  const { answers } = (req.body || {}) as { answers?: unknown };
+  const { answers, language } = (req.body || {}) as { answers?: unknown; language?: unknown };
 
   // Strict runtime types: only a plain answers object is accepted.
   if (!answers || typeof answers !== "object" || Array.isArray(answers)) {
@@ -61,6 +62,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (JSON.stringify(answers).length > MAX_ANSWERS_JSON_LENGTH) {
     res.status(400).json({ success: false, error: "Answers payload exceeds the size limit." });
+    return;
+  }
+
+  // DeepSeek correction — idempotency: a network retry or double-click
+  // re-POSTing the same payload must not generate a second report or
+  // send a duplicate email. A repeat within 10 minutes returns the
+  // original successful result instead.
+  const lang = language === "es" ? "es" : "en";
+  const idempotencyKey = submissionHash(answers as Record<string, unknown>, lang);
+  const cached = getCachedSubmission(idempotencyKey);
+  if (cached) {
+    res.status(200).json({ ...cached, duplicate: true });
     return;
   }
 
@@ -94,10 +107,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  res.status(200).json({
+  // Cache only after the email was actually sent — a failed attempt
+  // must not block a legitimate retry.
+  const responseBody: Record<string, unknown> = {
     success: true,
     message: "Inquiry submitted and emailed successfully.",
     structuredData: report.structuredData,
     reviewFlags: report.reviewFlags,
-  });
+  };
+  cacheSubmission(idempotencyKey, responseBody);
+  res.status(200).json(responseBody);
 }

@@ -113,6 +113,30 @@ export async function generateRentalReport(answers: Record<string, unknown>): Pr
 
   const sd = parsed.structuredData as Record<string, unknown>;
 
+  // ── Structured documentation classification (DeepSeek correction,
+  //    replaces Carbon's regex gate): whether the applicant has verified
+  //    payment documentation is a structured field the model must commit
+  //    to — never inferred by regex-matching prose. Validate its shape
+  //    defensively: a missing or malformed field is treated as
+  //    "none_mentioned" (no floor), never guessed as verified.
+  const docField = sd.paymentDocumentationContext;
+  const docFieldObj =
+    docField && typeof docField === "object" && !Array.isArray(docField)
+      ? (docField as Record<string, unknown>)
+      : {};
+  const docStatus =
+    docFieldObj.status === "verified_documentation" ||
+    docFieldObj.status === "source_stated_only" ||
+    docFieldObj.status === "none_mentioned"
+      ? (docFieldObj.status as string)
+      : "none_mentioned";
+  const docEvidenceQuote =
+    typeof docFieldObj.evidenceQuote === "string" ? docFieldObj.evidenceQuote.trim() : "";
+  const docConfidence =
+    docFieldObj.confidence === "high" || docFieldObj.confidence === "medium" || docFieldObj.confidence === "low"
+      ? (docFieldObj.confidence as string)
+      : "low";
+
   // ── Rigid math: clamp every category to its weight ceiling, then
   //    recompute the total as their exact sum. ───────────────────────────
   const categoryScores = {} as Record<ScoreCategory, number>;
@@ -125,13 +149,23 @@ export async function generateRentalReport(answers: Record<string, unknown>): Pr
   }
 
   const evidence = (sd.categoryEvidence as Record<string, unknown>) || {};
+  // Set when the evidence guard zeroes paymentDocumentationContext: the
+  // floor must not re-inflate a score the model gave no evidence for.
+  let paymentDocZeroedForNoEvidence = false;
   for (const category of SCORE_CATEGORY_KEYS) {
     const ev = evidence[category];
-    const hasEvidence = typeof ev === "string" && ev.trim().length > 0;
+    let hasEvidence = typeof ev === "string" && ev.trim().length > 0;
+    // The structured field's evidenceQuote also counts as evidence for
+    // paymentDocumentationContext — it is a direct quote of the
+    // documentation the model relied on.
+    if (!hasEvidence && category === "paymentDocumentationContext" && docEvidenceQuote.length > 0) {
+      hasEvidence = true;
+    }
     if (!hasEvidence && categoryScores[category] > 0) {
       console.warn(`[report] No categoryEvidence for "${category}" — forcing score to 0.`);
       categoryScores[category] = 0;
       (sd as Record<string, unknown>)[CATEGORY_SCORE_FIELD[category]] = 0;
+      if (category === "paymentDocumentationContext") paymentDocZeroedForNoEvidence = true;
     }
   }
 
@@ -154,14 +188,17 @@ export async function generateRentalReport(answers: Record<string, unknown>): Pr
   //    the documentation-context floor applies only when documentation
   //    context was actually provided.
   //
-  //    Carbon Pass 2, Finding 7: the Pass 1 gate was still flawed —
-  //    categoryEvidence.paymentDocumentationContext is REQUIRED by the
-  //    schema, so the model always writes *something* there (e.g. "No
-  //    program or documentation context provided"), making any non-empty
-  //    check true and firing the 13-point floor with zero context. The
-  //    floor is now gated on ACTUAL documentation/program specifics in
-  //    paymentSources. Without specifics, the partial-band floor is 8
-  //    (rubric: "payment source stated but no documentation context").
+  //    DeepSeek correction (replaces Carbon Pass 2's regex gate): the
+  //    floor is driven by the structured paymentDocumentationContext
+  //    field the model commits to — NOT by regex-matching prose in
+  //    paymentSources. Regex misses paraphrases ("my caseworker said the
+  //    voucher letter is coming") and false-positives on negations ("I
+  //    don't have the letter yet"). Thresholds are unchanged (8 / 13 /
+  //    15): verified_documentation → 13-point floor, 15 when confidence
+  //    is "high" and an evidenceQuote is present; source_stated_only →
+  //    the category score is 8 (cap and floor — that is the rubric
+  //    definition for "payment source stated but no documentation
+  //    context"); none_mentioned (or a malformed field) → no floor.
   const paymentSourcesText = String(answers.paymentSources || "");
   if (HOUSING_ASSISTANCE_KEYWORDS.test(paymentSourcesText)) {
     const FLOOR_FRACTION = 0.85; // "complete information" floor, matching the rubric's top band threshold
@@ -172,14 +209,27 @@ export async function generateRentalReport(answers: Record<string, unknown>): Pr
       categoryScores.financialInformationProvided = financialFloor;
       sd.scoreFinancialInformationProvided = financialFloor;
     }
-    const SPECIFIC_PROGRAM_OR_DOC =
-      /\b(section\s?8|housing choice voucher|cityfheps|fheps|hasa|letter|packet|approved|documentation|paperwork)\b/i;
     const partialFloor = 8; // rubric: "8 = payment source stated but no documentation context"
-    const targetPaymentFloor = SPECIFIC_PROGRAM_OR_DOC.test(paymentSourcesText) ? paymentFloor : partialFloor;
-    if (categoryScores.paymentDocumentationContext < targetPaymentFloor) {
-      console.warn("[report] Fair-housing floor applied to paymentDocumentationContext.");
-      categoryScores.paymentDocumentationContext = targetPaymentFloor;
-      sd.scorePaymentDocumentationContext = targetPaymentFloor;
+    if (!paymentDocZeroedForNoEvidence) {
+      if (docStatus === "verified_documentation") {
+        const targetFloor =
+          docConfidence === "high" && docEvidenceQuote.length > 0
+            ? CATEGORY_WEIGHTS.paymentDocumentationContext // 15
+            : paymentFloor; // 13
+        if (categoryScores.paymentDocumentationContext < targetFloor) {
+          console.warn("[report] Fair-housing floor applied to paymentDocumentationContext.");
+          categoryScores.paymentDocumentationContext = targetFloor;
+          sd.scorePaymentDocumentationContext = targetFloor;
+        }
+      } else if (docStatus === "source_stated_only") {
+        if (categoryScores.paymentDocumentationContext !== partialFloor) {
+          console.warn("[report] paymentDocumentationContext set to partial-band 8 (source stated, no documentation).");
+          categoryScores.paymentDocumentationContext = partialFloor;
+          sd.scorePaymentDocumentationContext = partialFloor;
+        }
+      }
+      // "none_mentioned" (or an invalid field) → no floor; the model
+      // score stands.
     }
   }
 
