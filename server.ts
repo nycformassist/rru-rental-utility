@@ -27,8 +27,8 @@
  * client can never hand the server arbitrary report content to email.
  *
  * Usage:  npm run dev        (tsx server.ts)
- *   (requires GEMINI_API_KEY in .env.local or .env; RESEND_API_KEY is
- *   required by /api/submit-inquiry at request time.)
+ *   (requires VERTEX_SERVICE_ACCOUNT_JSON in .env.local or .env;
+ *   RESEND_API_KEY is required by /api/submit-inquiry at request time.)
  */
 
 // MUST be first: loads .env.local / .env before any other module evaluates.
@@ -37,6 +37,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import { createServer as createViteServer } from "vite";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { isVertexConfigured } from "./lib/gemini-client.js";
 import evaluateHandler from "./api/evaluate.js";
 import generateReportHandler from "./api/generate-report.js";
 import submitInquiryHandler from "./api/submit-inquiry.js";
@@ -57,9 +58,12 @@ async function main() {
   const app = express();
   app.use(express.json({ limit: "1mb" }));
 
-  if (!process.env.GEMINI_API_KEY) {
-    console.error("[server] FATAL: GEMINI_API_KEY is not set in .env.local or .env");
-    process.exit(1);
+  // No hard exit when the Vertex service account is missing: the API
+  // handlers fail closed per request (500 "Server misconfiguration:
+  // missing VERTEX_SERVICE_ACCOUNT_JSON"), so the SPA and the rest of
+  // the dev server still run for testing without the credential.
+  if (!isVertexConfigured()) {
+    console.warn("[server] WARNING: VERTEX_SERVICE_ACCOUNT_JSON is not set in .env.local or .env — /api/evaluate, /api/generate-report and /api/submit-inquiry will return 500 until it is set.");
   }
 
   // ── API routes — delegate to the production Vercel handlers ──────────

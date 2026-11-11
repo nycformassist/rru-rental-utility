@@ -13,6 +13,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { generateRentalReport, UpstreamUnavailableError } from "../lib/report.js";
+import { isVertexConfigured } from "../lib/gemini-client.js";
 import { checkRateLimit, getClientIp } from "../lib/rate-limit.js";
 
 // Carbon Pass 1, finding #5: unauthenticated AI endpoints had no rate
@@ -34,9 +35,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  if (!process.env.GEMINI_API_KEY) {
-    console.error("[api/generate-report] FATAL: GEMINI_API_KEY is not set");
-    res.status(500).json({ error: "Server misconfiguration: missing GEMINI_API_KEY" });
+  if (!isVertexConfigured()) {
+    console.error("[api/generate-report] FATAL: VERTEX_SERVICE_ACCOUNT_JSON is not set");
+    res.status(500).json({ error: "Server misconfiguration: missing VERTEX_SERVICE_ACCOUNT_JSON" });
     return;
   }
 

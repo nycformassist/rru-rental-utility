@@ -13,13 +13,17 @@
 // Model config
 // ─────────────────────────────────────────────────────────────────────────
 //
-// The client (lib/gemini-client.ts) talks to the Gemini Developer API
-// (AI Studio) via an API key — NOT Vertex AI. Model IDs here must exist
-// on the Gemini Developer API. They can be overridden per environment:
+// The client (lib/gemini-client.ts) talks to Vertex AI (Google Cloud)
+// via a service account — NOT the Gemini Developer API / AI Studio.
+// Model IDs here must exist on Vertex AI. They can be overridden per
+// environment:
 //   GEMINI_MODEL_NAME / GEMINI_FALLBACK_MODEL_NAME
 // (Carbon Pass 1, finding #1: the previous hard-coded IDs
 // "gemini-3.8-flash" / "gemini-3.7-flash" are not valid on this API, and
 // a 404 from the primary model threw immediately instead of failing over.)
+// NOTE: if the primary model 404s on Vertex, the one-time fallback
+// covers it — and GEMINI_MODEL_NAME is the lever to point at a model
+// known to be published on Vertex for this project/region.
 //
 // NOTE: this module is also imported by the client bundle (src/App.tsx
 // imports INTAKE_QUESTIONS from here), where `process` does not exist —
@@ -128,12 +132,11 @@ export const REPORT_RESPONSE_SCHEMA = {
         // classification the model must commit to — never inferred by
         // regex-matching prose. The server applies the fair-housing
         // floor from this field only (lib/report.ts).
-        // NOTE on types: this schema uses the same legacy uppercase
-        // type strings as the rest of REPORT_RESPONSE_SCHEMA. The
-        // @google/genai Type enum values are runtime-identical strings
-        // (Type.OBJECT === "OBJECT"), and the backend already coerces
-        // them; importing the SDK into lib/constants.ts would pull it
-        // into the client bundle (src/App.tsx imports this module).
+        // NOTE on types: this schema uses legacy uppercase type
+        // strings ("OBJECT", "STRING", ...), which Vertex AI accepts
+        // as OpenAPI-style schema types. lib/constants.ts is also
+        // imported by the client bundle (src/App.tsx imports this
+        // module), so it must not import any server-only SDK.
         paymentDocumentationContext: {
           type: "OBJECT",
           properties: {

@@ -18,14 +18,18 @@ exactly like employment income.
 
    | Variable | Required for | Notes |
    |---|---|---|
-   | `GEMINI_API_KEY` | AI evaluation + report generation | Google AI Studio (Gemini Developer API) key. NOT a Vertex AI credential. |
+   | `VERTEX_SERVICE_ACCOUNT_JSON` | AI evaluation + report generation | Google Cloud service-account JSON (the whole JSON object, one line). Same value as Inner Temple's. The app talks to **Vertex AI**, not the Gemini Developer API / AI Studio — `GEMINI_API_KEY` is no longer used. |
+   | `VERTEX_PROJECT_ID` | AI evaluation + report generation | Optional. Defaults to `inner-temple-514402`. |
+   | `VERTEX_LOCATION` | AI evaluation + report generation | Optional. Defaults to `global`. |
    | `RESEND_API_KEY` | Email dispatch | Resend API key. |
    | `INTAKE_RECIPIENT_EMAIL` | Email dispatch | Agency inbox that receives the inquiry brief. |
    | `INTAKE_FROM_EMAIL` | Email dispatch | Sender address. On a Resend account with no verified domain, use the sandbox sender `onboarding@resend.dev` (delivers only to the account owner's inbox). |
 
    Optional model overrides: `GEMINI_MODEL_NAME` (default
    `gemini-2.5-flash`), `GEMINI_FALLBACK_MODEL_NAME` (default
-   `gemini-2.0-flash`).
+   `gemini-2.0-flash`). The model names must exist on Vertex AI for the
+   configured project/region; a 404 on the primary falls back to the
+   secondary model.
 3. Run the app:
    `npm run dev`
 
@@ -45,5 +49,8 @@ unauthenticated caller could email forged reports to staff.
 
 Deploy to Vercel (`vercel.json`): the SPA fallback excludes `/api/`, so
 a missing API route returns 404 JSON instead of 200 HTML. API functions
-run with `maxDuration: 30`. Set the same four environment variables in
-the Vercel project (Preview and Production scopes as needed).
+run with `maxDuration: 30`. Set the environment variables in
+the Vercel project (Preview and Production scopes as needed) —
+`VERTEX_SERVICE_ACCOUNT_JSON` is the credential that makes the AI
+calls work; without it the API routes fail closed with a clear
+"not configured" error.

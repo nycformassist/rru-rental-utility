@@ -23,6 +23,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { generateRentalReport, UpstreamUnavailableError } from "../lib/report.js";
+import { isVertexConfigured } from "../lib/gemini-client.js";
 import { sendInquiryEmail } from "../lib/email.js";
 import { checkRateLimit, getClientIp } from "../lib/rate-limit.js";
 import { submissionHash, getCachedSubmission, cacheSubmission } from "../lib/idempotency.js";
@@ -46,9 +47,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  if (!process.env.GEMINI_API_KEY) {
-    console.error("[api/submit-inquiry] FATAL: GEMINI_API_KEY is not set");
-    res.status(500).json({ success: false, error: "Server misconfiguration: missing GEMINI_API_KEY" });
+  if (!isVertexConfigured()) {
+    console.error("[api/submit-inquiry] FATAL: VERTEX_SERVICE_ACCOUNT_JSON is not set");
+    res.status(500).json({ success: false, error: "Server misconfiguration: missing VERTEX_SERVICE_ACCOUNT_JSON" });
     return;
   }
 
